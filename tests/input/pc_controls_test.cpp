@@ -158,6 +158,25 @@ int main(int argc,char **argv) {
         REQUIRE(xml1_pc_settings_load(path.u8string().c_str(),&loaded,error,sizeof(error)));
         REQUIRE(!std::memcmp(&loaded,&defaults,sizeof(defaults)));
         {
+            auto mode=defaults;
+            const unsigned expected[][2]={{2560,1440},{3840,2160},{1280,720},{1920,1080}};
+            for(const auto &size:expected) {
+                xml1_pc_resolution_next(&mode);
+                REQUIRE(mode.width==size[0] && mode.height==size[1]);
+                REQUIRE(xml1_pc_settings_save(path.u8string().c_str(),&mode,error,sizeof(error)));
+                Xml1PcSettings roundtrip{};
+                REQUIRE(xml1_pc_settings_load(path.u8string().c_str(),&roundtrip,error,sizeof(error)));
+                REQUIRE(!std::memcmp(&mode,&roundtrip,sizeof(mode)));
+            }
+            // Manual INI entry follows the same path as Options, without requiring a 4K monitor.
+            {std::ofstream ini(path);ini<<"[PC]\nWidth=3840\nHeight=2160\n";}
+            REQUIRE(xml1_pc_settings_load(path.u8string().c_str(),&mode,error,sizeof(error)));
+            REQUIRE(mode.width==3840 && mode.height==2160);
+            mode.height=1080;REQUIRE(!xml1_pc_settings_validate(&mode,error,sizeof(error)));
+            REQUIRE(!xml1_pc_resolution_supported(7680,4320));
+            REQUIRE(xml1_pc_settings_save(path.u8string().c_str(),&defaults,error,sizeof(error)));
+        }
+        {
             auto profile_path=dir/"profiles.ini";
             std::ofstream old(profile_path);
             old<<"[PC]\nKeyboardPlayer=2\n[Bindings]\nMoveForward=84\n";old.close();
@@ -504,6 +523,11 @@ int main(int argc,char **argv) {
         xml1_pc_native_item(95,"pcnative_resolution_value");
         REQUIRE(xml1_pc_native_value(95,label,sizeof(label)) && !std::strcmp(label,"1920x1080"));
         REQUIRE(!xml1_pc_native_value(101,label,sizeof(label)));
+        REQUIRE(xml1_pc_native_token("pcnative_resolution"));
+        REQUIRE(xml1_pc_native_value(101,label,sizeof(label)) && !std::strcmp(label,"Resolution: 2560x1440"));
+        REQUIRE(xml1_pc_native_token("pcnative_resolution"));
+        REQUIRE(xml1_pc_native_value(101,label,sizeof(label)) && !std::strcmp(label,"Resolution: 3840x2160"));
+        REQUIRE(xml1_pc_native_value(95,label,sizeof(label)) && !std::strcmp(label,"3840x2160"));
         REQUIRE(xml1_pc_native_token("pcnative_resolution"));
         REQUIRE(!xml1_pc_native_value(101,label,4));
         REQUIRE(xml1_pc_native_value(101,label,sizeof(label)));

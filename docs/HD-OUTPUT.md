@@ -168,3 +168,44 @@ the output. Returning resumes the enemies and HUD correctly. No settings were
 changed or applied in this navigation check. Evidence uses run-hd-v221.py,
 native-v221.log, worker-v221.log, native-hd-v221-capture-1.bmp through -6.bmp
 and exit-v221.json in work/native-igb-menu-test.
+
+## 4K output (2026-10-22)
+
+Supported widescreen output modes are now 1280x720, 1920x1080, 2560x1440 and
+3840x2160. Advanced Options cycles through those modes; Apply and restart to
+change the active render size. The default remains 1920x1080. Original 640x480
+remains available through the INI. Manual configuration uses `pc-settings.ini`:
+
+```ini
+[PC]
+Width=3840
+Height=2160
+```
+
+The previous INI validator rejected 4K before startup, and the DX8 worker had a
+second independent resolution whitelist. INI validation, the native menu and
+renderer now share the supported-mode definition. Window fitting retains the
+chosen render resolution, even when the desktop is smaller.
+
+Validation: optimized Release build and PC controls tests passed, including
+manual 4K INI loading, saved-settings round trips, native menu cycling/display,
+and rejection of unsupported dimensions. Embedded renderer and system-only DLL
+imports verified. Headless/muted game run used the manual INI (no resolution
+environment override), with hidden window fitting enabled on a 1920x1080 desktop.
+The actual render buffer and every native BMP were 3840x2160; fitted client size
+was 1765x993. No desktop input or capture was used.
+
+Native captures inspected individually: initial black startup frames (1-2),
+story FMV/subtitles (3), level-one Wolverine/scenery/HUD (4), movement and changed
+camera position (5), pause menu (6), Advanced Options displaying 3840x2160 over
+level scenery (7-8), objectives (9), quit confirmation (10), and return to the
+Cerebro main menu (11). The in-game resolution cycle logged all four widescreen
+modes. This was a bounded visual/functionality check, not a full combat or
+performance acceptance campaign. Audio was muted. Physical 4K-monitor behavior,
+other GPUs, FSAA at 4K and a separate 1440p gameplay run were not tested.
+
+Evidence stays in `work/4k-validation/`, including the process-local harness,
+private settings/profile/temp folders, native captures and logs. Asset links
+resolve within this repository. Owned test processes were closed. Staged EXE:
+`XBOXgame/X-Men Legends.exe`, SHA-256
+`5a5b6e5c35c75fea250488c446e08ce73c86cc07232a235fb9cee93f8334eb20`.

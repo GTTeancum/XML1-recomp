@@ -282,7 +282,7 @@ extern "C" int xml1_pc_native_token(const char *token) {
     } else {
         auto &s=native_model.draft;native_model.status[0]=0;
         if(!std::strcmp(action,"resolution")) {
-            if(s.width==1920){s.width=1280;s.height=720;}else{s.width=1920;s.height=1080;}
+            xml1_pc_resolution_next(&s);
         } else if(!std::strcmp(action,"window"))s.fullscreen=!s.fullscreen;
         else if(!std::strcmp(action,"fsaa")) {
             Xml1PcInputSnapshot current{};

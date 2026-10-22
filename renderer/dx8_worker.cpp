@@ -205,10 +205,12 @@ int main(int argc, char** argv) {
     unsigned render_width=liveMode&&!vblankMode?1280:640,render_height=liveMode&&!vblankMode?720:480;
     const char* resolution=vblankMode?nullptr:std::getenv("XML1_DX8_RESOLUTION");
     if(resolution) {
-        if(!std::strcmp(resolution,"1280x720")) {render_width=1280;render_height=720;}
-        else if(!std::strcmp(resolution,"1920x1080")) {render_width=1920;render_height=1080;}
-        else if(!std::strcmp(resolution,"640x480")) {render_width=640;render_height=480;}
-        else {std::fprintf(stderr,"Unsupported XML1_DX8_RESOLUTION\n");return 2;}
+        unsigned width=0,height=0;char trailing=0;
+        if(std::sscanf(resolution,"%ux%u%c",&width,&height,&trailing)!=2 ||
+           !xml1_pc_resolution_supported(width,height)) {
+            std::fprintf(stderr,"Unsupported XML1_DX8_RESOLUTION\n");return 2;
+        }
+        render_width=width;render_height=height;
     }
     output_width=render_width;output_height=render_height;
     window_render_width=render_width;window_render_height=render_height;

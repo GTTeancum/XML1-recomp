@@ -49,6 +49,8 @@ typedef struct Xml1PcControlState {
 } Xml1PcControlState;
 
 const char *xml1_pc_action_name(unsigned action);
+int xml1_pc_resolution_supported(uint32_t width, uint32_t height);
+void xml1_pc_resolution_next(Xml1PcSettings *settings);
 void xml1_pc_settings_defaults(Xml1PcSettings *settings);
 /* XML2-derived layouts 1..3; replace only the selected player bindings. */
 int xml1_pc_settings_preset(Xml1PcSettings *settings, unsigned player, unsigned preset);
