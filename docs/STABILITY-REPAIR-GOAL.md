@@ -412,3 +412,44 @@ blocked, not complete. #18/#17/#14 local evidence and staged candidate remain
 preserved. Resume on a failing-machine candidate result or relevant diagnostic
 logs. This blocker is unrelated to saves; private saves were created and tested.
 No speculative edits, remote messages, commits, pushes or publication.
+
+## October 11: requested full clean build and C:\Games staging
+
+Cloned remote commit b9b8a20244298b430dfd1e8c7657c48972647753 into a new
+work/startup-clean-20261011 checkout, initialized pinned submodules, ran setup,
+and built optimized Release from an empty build directory. Embedded DX8 worker
+verification passed (system DLL imports only, AMD/NVIDIA GPU hints present).
+Staged C:\Games\X-Men Legends\X-Men Legends.exe with current XBOXgame assets;
+no old saves, logs or caches were copied. Source staging remains unchanged.
+EXE SHA256: 79934e841797877b55dfffc781239c665f3bd23ce5a161511dc6074dceeb47d9.
+
+The actual staged EXE passed startup using a fresh private LOCALAPPDATA path
+containing accented characters. Eight native captures individually inspected:
+startup artwork, story FMV/subtitles, level-one scenery/Wolverine/HUD, movement,
+pause, quit confirmation, and return to the Cerebro main menu background.
+Progression, powerup-definition and filter-event native checks also exited 0.
+Muted run: no audio quality assessment or full combat/campaign validation.
+Owned test process stopped; no desktop input used. Evidence/logs are preserved
+under work/startup-clean-smoke. TODO #1 remains open pending affected-machine
+retest; this successful local run does not confirm the reporter's failure fixed.
+
+Normal-launch follow-up: launched the staged EXE without command-line switches,
+test input, profile overrides or muting. Actual user cache published its embedded
+worker successfully; visible D3D8 HAL device creation returned success on the
+AMD Radeon 780M. Kernel bridge resolved 130/130 imports. XAudio2 initialized and
+continued submissions with zero observed empty queues. No fatal exception or
+startup exit reproduced during the monitored run. This is log-based normal
+launch evidence, not audible-quality verification. Earlier inspected native
+captures establish the separate bounded gameplay flow. Owned process ended and
+logs preserved under work/startup-normal-launch/normal-run. No user testing
+requested; reporter-specific root cause remains unproven.
+
+## October 11: user-authorized issue closure
+
+At the user's direction, closed GitHub #8, #14, #17 and #18 with individual
+repair/reproduction notes and upcoming-release expectations. #8's note explicitly
+retains the lack of reporter-hardware confirmation; closure is an accepted
+best-effort disposition, not new proof of its exact root cause. Notes invite
+reopening if the next release still exhibits the reported behavior. GitHub #16
+remains open. Removed the accepted startup item from TODO.MD and renumbered HAARP
+to #1. No new release was published in this step.
