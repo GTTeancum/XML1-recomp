@@ -562,7 +562,6 @@ void xml1_graphics_live_observe(uint32_t va) {
     }
     else if (va==0x3692E0) pixel_shader=a[0];
     else if (va==0x35D360&&a[0]==0) { stream=a[1]; stride=a[2]; }
-    else if (va==0x35C060) { if (a[0]>=4) fatal("invalid texture stage"); textures[a[0]]=a[1]; }
     else if (va==0x35D900) { unsigned m=(g_ecx&0x1FFF)/4; methods[m]=g_edx; method_set[m]=1; }
     else if (va==0x362430) {
         /* Coalesce the observed startup clear, preserving all later clears in
@@ -576,6 +575,14 @@ void xml1_graphics_live_observe(uint32_t va) {
     else if (va==0x367AF0||va==0x367B90) {
         int indexed=va==0x367B90;
         uint32_t vertex_count=indexed?a[1]:a[2];
+        /* Read the XDK's authoritative binding table at draw time. Alchemy's
+         * material toggle (001C19A0) tail-jumps to SetTexture and bypasses the
+         * ABI observer; a call-only shadow retained the previous frame's font
+         * atlas on terrain. The same snapshot covers every material and stage,
+         * including explicit NULL bindings. 0035C0A3 writes this table. */
+        uint32_t device=*(const uint32_t*)guest(0x36CAF8,4);
+        memcpy(textures,guest(device+0xF88,sizeof(textures)),sizeof(textures));
+
         /* D3DTOP_DISABLE terminates the fixed-function texture cascade. Bound
          * resources in disabled stages do not participate in the draw. */
         uint32_t second_color_op=*(const uint32_t *)guest(0x36C660+128+12*4,4);
@@ -608,7 +615,7 @@ void xml1_graphics_live_observe(uint32_t va) {
                 fwrite(guest(0x80000000+buffer[1],bytes),1,bytes,fp);fclose(fp);
             }
         }
-        if ((a[0]!=5&&a[0]!=6&&a[0]!=7)||(a[0]==5&&vertex_count%3)||vertex_count<3||vertex_count>1000000||(!(fvf&1)&&(!xml1_fvf_stride(fvf)||stride!=xml1_fvf_stride(fvf)))||pixel_shader||!stream||!textures[0]||(second_active&&(!textures[1]||ts[76]!=1))) {
+        if ((a[0]!=5&&a[0]!=6&&a[0]!=7)||(a[0]==5&&vertex_count%3)||vertex_count<3||vertex_count>1000000||(!(fvf&1)&&(!xml1_fvf_stride(fvf)||stride!=xml1_fvf_stride(fvf)))||pixel_shader||!stream||(second_active&&ts[76]!=1)) {
             for(unsigned stage=0;stage<4;++stage) if (textures[stage]) {
                 const uint32_t *t=guest(textures[stage],20);
                 const uint32_t *s=guest(0x36C660+stage*128,128);
@@ -621,7 +628,8 @@ void xml1_graphics_live_observe(uint32_t va) {
             fatal("unimplemented draw path");
         }
         if ((matrix_mask&0x43)!=0x43||!viewport[2]||!viewport[3]) fatal("missing transform/viewport state");
-        const uint32_t *tex=guest(textures[0],20), *vb=guest(stream,12);
+        const uint32_t null_texture[5]={0};
+        const uint32_t *tex=textures[0]?guest(textures[0],20):null_texture, *vb=guest(stream,12);
         if(menu_slider_trace_active && getenv("XML1_PC_NATIVE_BOUNDS")) {
             static unsigned reports,hashes[48];unsigned hash=2166136261u;
             const unsigned slots[3]={0,1,6};
@@ -636,7 +644,7 @@ void xml1_graphics_live_observe(uint32_t va) {
                 fprintf(stderr,"\n");
             }
         }
-        const uint32_t *tex1=second_active?guest(textures[1],20):NULL;
+        const uint32_t *tex1=second_active&&textures[1]?guest(textures[1],20):NULL;
         uint32_t second_header[3]={0}; size_t second_bytes=0;
         if(tex1) {
             unsigned fmt=(tex1[3]>>8)&255;
@@ -655,9 +663,10 @@ void xml1_graphics_live_observe(uint32_t va) {
             fatal("unimplemented texture format");
         }
         uint32_t header[6]={1u<<((tex[3]>>20)&15),1u<<((tex[3]>>24)&15),vertex_count,format|(((tex[3]>>16)&15)<<8),(fvf&1)?XML1_VERTEX_PROGRAM_WIRE:fvf,a[0]};
+        if(!textures[0]) {header[0]=header[1]=header[3]=0;} /* V9 NULL binding: no texture payload. */
         uint64_t offset=(uint64_t)vb[1]+(indexed?0:(uint64_t)a[1]*stride), bytes=(uint64_t)vertex_count*stride;
-        size_t tex_bytes=xml1_texture_bytes(header[0],header[1],header[3]);
-        if(!tex_bytes) fatal("invalid primary mip chain");
+        size_t tex_bytes=textures[0]?xml1_texture_bytes(header[0],header[1],header[3]):0;
+        if(textures[0]&&!tex_bytes) fatal("invalid primary mip chain");
         if (offset+bytes>64u*1024*1024||(uint64_t)tex[1]+tex_bytes-(format==11?1024:0)>64u*1024*1024) fatal("resource bounds");
         uint32_t rs[168]; memcpy(rs,guest(0x36C860,sizeof(rs)),sizeof(rs));
         uint32_t lights[32][26], light_mask;
@@ -673,7 +682,7 @@ void xml1_graphics_live_observe(uint32_t va) {
         append(material,sizeof(material)); append(&light_mask,4);
         for(unsigned i=0;i<32;++i) if(light_mask&(1u<<i)) append(lights[i],104);
         append(second_header,sizeof(second_header)); append(matrices[2],64); append(matrices[3],64);
-        const void *pixels=guest(0x80000000+tex[1],tex_bytes-(format==11?1024:0));
+        const void *pixels=textures[0]?guest(0x80000000+tex[1],tex_bytes-(format==11?1024:0)):NULL;
         if (format==6) {
             static unsigned argb_reports;
             if (argb_reports<4 || frames%60==0) {
@@ -688,7 +697,7 @@ void xml1_graphics_live_observe(uint32_t va) {
                 ++argb_reports;
             }
         }
-        append_texture(0x80000000+tex[1],header[0],header[1],header[3],0);
+        if(textures[0]) append_texture(0x80000000+tex[1],header[0],header[1],header[3],0);
         if(tex1) append_texture(0x80000000+tex1[1],second_header[0],second_header[1],second_header[2],1);
         const int track_menu_vertices=xml1_pc_native_tracking();
         if(indexed) {

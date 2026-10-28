@@ -614,10 +614,10 @@ loc_00342E79: ;
 loc_00342E87: ;
     if (1) _cf = (int)(((ebx) >> ((1) - 1)) & 1);
     ebx = ebx >> 1;
-    /* TODO: rcr ecx, 1 */
+    { uint32_t carry_out = ecx & 1u; ecx = (ecx >> 1) | ((uint32_t)_cf << 31); _cf = (int)carry_out; } /* rcr ecx, 1 */
     if (1) _cf = (int)(((edx) >> ((1) - 1)) & 1);
     edx = edx >> 1;
-    /* TODO: rcr eax, 1 */
+    { uint32_t carry_out = eax & 1u; eax = (eax >> 1) | ((uint32_t)_cf << 31); _cf = (int)carry_out; } /* rcr eax, 1 */
     _cf = 0; /* logical op clears CF */
     ebx = ebx | ebx;
     if ((ebx != 0)) goto loc_00342E87; /* jne: not equal / not zero */
@@ -1923,10 +1923,10 @@ loc_00343481: ;
 loc_0034348F: ;
     if (1) _cf = (int)(((ecx) >> ((1) - 1)) & 1);
     ecx = ecx >> 1;
-    /* TODO: rcr ebx, 1 */
+    { uint32_t carry_out = ebx & 1u; ebx = (ebx >> 1) | ((uint32_t)_cf << 31); _cf = (int)carry_out; } /* rcr ebx, 1 */
     if (1) _cf = (int)(((edx) >> ((1) - 1)) & 1);
     edx = edx >> 1;
-    /* TODO: rcr eax, 1 */
+    { uint32_t carry_out = eax & 1u; eax = (eax >> 1) | ((uint32_t)_cf << 31); _cf = (int)carry_out; } /* rcr eax, 1 */
     _cf = 0; /* logical op clears CF */
     ecx = ecx | ecx;
     if ((ecx != 0)) goto loc_0034348F; /* jne: not equal / not zero */
@@ -2552,10 +2552,10 @@ loc_003436D2: ;
 loc_003436E0: ;
     if (1) _cf = (int)(((ecx) >> ((1) - 1)) & 1);
     ecx = ecx >> 1;
-    /* TODO: rcr ebx, 1 */
+    { uint32_t carry_out = ebx & 1u; ebx = (ebx >> 1) | ((uint32_t)_cf << 31); _cf = (int)carry_out; } /* rcr ebx, 1 */
     if (1) _cf = (int)(((edx) >> ((1) - 1)) & 1);
     edx = edx >> 1;
-    /* TODO: rcr eax, 1 */
+    { uint32_t carry_out = eax & 1u; eax = (eax >> 1) | ((uint32_t)_cf << 31); _cf = (int)carry_out; } /* rcr eax, 1 */
     _cf = 0; /* logical op clears CF */
     ecx = ecx | ecx;
     if ((ecx != 0)) goto loc_003436E0; /* jne: not equal / not zero */
@@ -3806,10 +3806,10 @@ loc_00343B8A: ;
 loc_00343B98: ;
     if (1) _cf = (int)(((ebx) >> ((1) - 1)) & 1);
     ebx = ebx >> 1;
-    /* TODO: rcr ecx, 1 */
+    { uint32_t carry_out = ecx & 1u; ecx = (ecx >> 1) | ((uint32_t)_cf << 31); _cf = (int)carry_out; } /* rcr ecx, 1 */
     if (1) _cf = (int)(((edx) >> ((1) - 1)) & 1);
     edx = edx >> 1;
-    /* TODO: rcr eax, 1 */
+    { uint32_t carry_out = eax & 1u; eax = (eax >> 1) | ((uint32_t)_cf << 31); _cf = (int)carry_out; } /* rcr eax, 1 */
     _cf = 0; /* logical op clears CF */
     ebx = ebx | ebx;
     if ((ebx != 0)) goto loc_00343B98; /* jne: not equal / not zero */
@@ -3977,10 +3977,10 @@ loc_00343C5C: ;
 loc_00343C6A: ;
     if (1) _cf = (int)(((ebx) >> ((1) - 1)) & 1);
     ebx = ebx >> 1;
-    /* TODO: rcr ecx, 1 */
+    { uint32_t carry_out = ecx & 1u; ecx = (ecx >> 1) | ((uint32_t)_cf << 31); _cf = (int)carry_out; } /* rcr ecx, 1 */
     if (1) _cf = (int)(((edx) >> ((1) - 1)) & 1);
     edx = edx >> 1;
-    /* TODO: rcr eax, 1 */
+    { uint32_t carry_out = eax & 1u; eax = (eax >> 1) | ((uint32_t)_cf << 31); _cf = (int)carry_out; } /* rcr eax, 1 */
     _cf = 0; /* logical op clears CF */
     ebx = ebx | ebx;
     if ((ebx != 0)) goto loc_00343C6A; /* jne: not equal / not zero */

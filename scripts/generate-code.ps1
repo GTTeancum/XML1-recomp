@@ -70,6 +70,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Handler live trace guard failed.' }
     & $python (Join-Path $PSScriptRoot 'guard-vertex-state.py')
     if ($LASTEXITCODE -ne 0) { throw 'Vertex viewport guard failed.' }
+    & $python (Join-Path $PSScriptRoot 'guard-crt-rotates.py')
+    if ($LASTEXITCODE -ne 0) { throw 'CRT division rotate guard failed.' }
     & $python (Join-Path $PSScriptRoot 'guard-raven-operand-trace.py')
     if ($LASTEXITCODE -ne 0) { throw 'Raven operand trace guard failed.' }
     & $python (Join-Path $PSScriptRoot 'guard-raven-energy.py')

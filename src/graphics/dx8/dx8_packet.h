@@ -6,6 +6,9 @@
  * B1 wraps an ordered list of commands with one final acknowledgement. Only
  * its final command can present; F9/R9 completion still covers all prior work.
  * Evictions retire token ownership in stream order, never guest fence state. */
+/* V9 primary width=height=packed=0 represents a NULL texture binding and has
+ * no texture token/payload, matching the existing absent secondary texture.
+ * Vertex counts and layout are unaffected. Older versions require a texture. */
 /* D8 carries the same version-8 draw records as F8/R8, but acknowledges
  * ordered submission only. It neither presents nor publishes GPU completion;
  * a subsequent F8/R8 must complete all preceding D8 draws and C5 clears. */

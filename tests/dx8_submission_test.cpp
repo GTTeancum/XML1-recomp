@@ -6,9 +6,12 @@ typedef BOOL WINBOOL;
 #include <cstring>
 #include "../renderer/dx8_replay.h"
 #define REQUIRE(x) do {if(!(x))throw std::runtime_error(#x);}while(0)
+// Run from a repository-local test output directory. Avoid CRT tmpfile(),
+// whose Windows destination need not follow the caller's TEMP setting.
+static FILE *test_file() { return std::fopen("dx8-submission-test.tmp","w+b"); }
 static void put(FILE *f,const void *p,size_t n) {REQUIRE(std::fwrite(p,1,n,f)==n);}
 static void command(IDirect3DDevice8 *device,const char *magic,const std::vector<unsigned char>& data) {
-    FILE *f=std::tmpfile();REQUIRE(f);put(f,magic,8);put(f,data.data(),data.size());std::rewind(f);
+    FILE *f=test_file();REQUIRE(f);put(f,magic,8);put(f,data.data(),data.size());std::rewind(f);
     replay_stream(device,f,nullptr,false);std::fclose(f);
 }
 template<class T> static void append(std::vector<unsigned char>& out,const T& value) {
@@ -46,6 +49,7 @@ int main() {
     uint32_t second[3]={};append(packet,second);append(packet,identity);append(packet,identity);append(packet,zero);
     uint32_t blue[4]={0xff0000ff,0xff0000ff,0xff0000ff,0xff0000ff};append(packet,blue);
     struct V {float x,y,z;DWORD color;float u,v;};V vertices[]={{-1,-1,0,0xffffffff,0,0},{1,-1,0,0xffffffff,1,0},{0,1,0,0xffffffff,.5f,1}};append(packet,vertices);
+    const auto blue_packet=packet;
     command(device,"XMLDX8D8",packet);REQUIRE(completion_waits==0);
     packet.clear();clear[1]=0xff00ff00;clear[4]=1;append(packet,clear);D3DRECT corner={0,0,20,20};append(packet,corner);
     command(device,"XMLDX8C5",packet);REQUIRE(completion_waits==0);
@@ -53,6 +57,22 @@ int main() {
     REQUIRE(pixel(device,960,540)==0xff);REQUIRE(pixel(device,10,10)==0xff00);REQUIRE(pixel(device,1800,100)==0xff0000);
     command(device,"XMLDX8F8",packet);REQUIRE(completion_waits==1);
     puts("PASS ordered draw/partial clear preserves pixels; explicit fence completes once; redundant empty fence does not wait");
+    // Bind blue, explicitly unbind it, then bind blue again. No placeholder
+    // texture is allowed: inspect both native binding and the rendered pixels.
+    packet.clear();append(packet,count);
+    header[0]=header[1]=header[3]=0;append(packet,header);append(packet,viewport);
+    for(unsigned i=0;i<3;++i)append(packet,identity);
+    ts[14]=0; // SELECTARG1 DIFFUSE, with no texture bound.
+    append(packet,rs);append(packet,ts);append(packet,material);append(packet,zero);
+    append(packet,second);append(packet,identity);append(packet,identity);
+    append(packet,zero);uint32_t three=3;append(packet,three);append(packet,vertices);
+    command(device,"XMLDX8D9",packet);
+    REQUIRE(bound_textures_known[0] && bound_textures[0]==nullptr);
+    packet.clear();append(packet,zero);command(device,"XMLDX8F9",packet);
+    REQUIRE(pixel(device,960,540)==0xffffff);
+    command(device,"XMLDX8D8",blue_packet);command(device,"XMLDX8F8",packet);
+    REQUIRE(bound_textures[0]!=nullptr);REQUIRE(pixel(device,960,540)==0xff);
+    puts("PASS native NULL texture binding renders diffuse white and subsequent textured draw restores blue");
     clear_texture_cache();
     // More than the cache budget of distinct frames forces allocation reuse.
     // One dictionary-pinned texture and the current first-stage texture must
@@ -61,7 +81,7 @@ int main() {
     for(unsigned i=0;i<80;++i) {
         DWORD color=0xff000000|((i+1)*17777);
         std::vector<DWORD> pixels(1024*512,color);
-        FILE *f=std::tmpfile();REQUIRE(f);put(f,pixels.data(),pixels.size()*4);std::rewind(f);
+        FILE *f=test_file();REQUIRE(f);put(f,pixels.data(),pixels.size()*4);std::rewind(f);
         auto texture=read_texture(device,f,1024,512,6,protected_texture);std::fclose(f);
         if(i==0) {wire_textures[0]={1024,512,6,texture};texture->AddRef();}
         if(protected_texture) {

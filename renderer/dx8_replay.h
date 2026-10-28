@@ -378,13 +378,14 @@ static bool replay_stream(IDirect3DDevice8* device, FILE* file, const char* capt
         uint32_t second_header[3]={}; D3DMATRIX texture_matrices[2]={};
         if(version4) { read(second_header,sizeof(second_header)); read(texture_matrices,sizeof(texture_matrices)); }
         auto width=header[0],height=header[1],vertices=header[2];
-        if (!width||!height||width>4096||height>4096||vertices<3||vertices>1000000)
+        if ((!width!=!height)||(!width&&(!version9||header[3]))||width>4096||height>4096||vertices<3||vertices>1000000)
             throw std::runtime_error("Invalid replay geometry");
         if(!xml1_fvf_stride(header[4])||(!version6&&(header[3]>255||second_header[2]>255)))
             throw std::runtime_error("Unsupported replay format");
         const unsigned stride=xml1_fvf_stride(header[4]);
         if((header[5]!=5&&header[5]!=6&&header[5]!=7)||(header[5]==5&&vertices%3)) throw std::runtime_error("Unsupported primitive type");
-        IDirect3DTexture8* texture=read_wire_texture(device,file,width,height,header[3],version7,nullptr,version9);
+        // V9 zero dimensions encode the actual NULL stage-0 binding.
+        IDirect3DTexture8* texture=width?read_wire_texture(device,file,width,height,header[3],version7,nullptr,version9):nullptr;
         IDirect3DTexture8* second_texture=second_header[0]?read_wire_texture(device,file,second_header[0],second_header[1],second_header[2],version7,texture,version9):nullptr;
         unsigned index_count=0,vertex_count=vertices;
         if(version9) {
@@ -456,7 +457,7 @@ static bool replay_stream(IDirect3DDevice8* device, FILE* file, const char* capt
             if(index_count)checked(device->DrawIndexedPrimitiveUP(type,0,vertex_count,primitives,indices.data(),D3DFMT_INDEX16,vb.data(),stride));
             else checked(device->DrawPrimitiveUP(type,primitives,vb.data(),stride));
         } else geometry_stream.draw(device,type,primitives,vb.data(),vertex_count,stride,index_count?indices.data():nullptr,index_count);
-        texture->Release();
+        if(texture) texture->Release();
         if(second_texture) second_texture->Release();
         if (!live && !quiet_replay) std::printf("Replayed game draw %u: %u vertices, %ux%u format %u\n",n+1,vertices,width,height,header[3]);
     }

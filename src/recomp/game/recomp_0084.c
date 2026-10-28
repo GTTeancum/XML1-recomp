@@ -1687,10 +1687,10 @@ loc_003490A1: ;
 loc_003490AF: ;
     if (1) _cf = (int)(((ecx) >> ((1) - 1)) & 1);
     ecx = ecx >> 1;
-    /* TODO: rcr ebx, 1 */
+    { uint32_t carry_out = ebx & 1u; ebx = (ebx >> 1) | ((uint32_t)_cf << 31); _cf = (int)carry_out; } /* rcr ebx, 1 */
     if (1) _cf = (int)(((edx) >> ((1) - 1)) & 1);
     edx = edx >> 1;
-    /* TODO: rcr eax, 1 */
+    { uint32_t carry_out = eax & 1u; eax = (eax >> 1) | ((uint32_t)_cf << 31); _cf = (int)carry_out; } /* rcr eax, 1 */
     _cf = 0; /* logical op clears CF */
     ecx = ecx | ecx;
     if ((ecx != 0)) goto loc_003490AF; /* jne: not equal / not zero */
