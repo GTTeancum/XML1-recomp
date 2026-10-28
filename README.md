@@ -4,9 +4,9 @@ A Windows recompilation of the original Xbox **X-Men Legends**, built with
 [XboxRecomp](https://github.com/sp00nznet/xboxrecomp) and a native Windows
 **Direct3D 8** renderer.
 
-**[Download 0.10.0](https://github.com/GTTeancum/XML1-recomp/releases/tag/0.10.0)**
+**[Download 0.9.3](https://github.com/GTTeancum/XML1-recomp/releases/tag/0.9.3)**
 
-Version 0.10.0 is an engine-assessment build. It reaches gameplay, supports
+Version 0.9.3 is an engine-assessment build. It reaches gameplay, supports
 keyboard/mouse and XInput controls, and includes PC Options and Advanced Options
 using XML2 menu assets recolored for XML1. It also adds the Angel mod plus beta
 Bishop and Sunfire imports used to exercise the newly supported XML2 combat
