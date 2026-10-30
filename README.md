@@ -8,7 +8,7 @@ A Windows recompilation of the original Xbox **X-Men Legends**, built with
 
 Version 1.0 runs the game natively on Windows at up to 4K, with keyboard/mouse
 and XInput controls, PC Options and Advanced Options using XML2 menu assets
-recolored for XML1, Angel, Bishop and Sunfire with XML2 combat handlers,
+recolored for XML1, Angel and Bishop with XML2 combat handlers,
 NewGame+, the stash, loose-file modding and HD texture pack support. An
 optional texture template download contains every original texture as a PNG
 for making texture packs.
