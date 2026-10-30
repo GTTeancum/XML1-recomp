@@ -133,7 +133,8 @@ are extrapolations; only the user's machines can confirm them.
 - Per-thread speed of old CPUs cannot be emulated by affinity; the main thread's
   ~10 ms of combat work per frame is the likely limit there.
 - No Intel/NVIDIA hardware, hybrid laptop or driver was available.
-- The pinned 1.0 release (work/release-1.0) does not contain these changes.
+
+The 1.0 release package is built from the candidate executable below.
 
 Evidence: `work/oldpc-perf/runs/` (`r1-3-*`, `b1-2-*`, `base-2c`, `final-2c`,
 `gpu*`, `prof*`, `stall1`), `fence-test.log`. Candidate executable
