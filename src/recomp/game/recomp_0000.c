@@ -855,6 +855,7 @@ loc_00011381: ;
  * CC: thiscall, 0 params, returns int_or_void
  * Frame: fpo_leaf
  */
+void xml1_frame_limit_pause(double elapsed, float minimum);
 void sub_00011390(void)
 {
     uint32_t ebp;
@@ -965,6 +966,7 @@ loc_00011405: ;
 loc_0001140C: ;
     MEMF(esp + 0xC) = (float)fp_top(); /* fst */
     fp_top() = fp_top() - MEMF(esi + 8); /* fsub dword ptr [esi + 8] */
+    xml1_frame_limit_pause(fp_top(), MEMF(esi + 4)); /* PC: sleep, then the original poll decides */
     g_fp_cmp = RECOMP_FCMP(fp_top(), MEMF(esi + 4)); g_fp_cc = RECOMP_FCMP_CC(g_fp_cmp); fp_pop(); /* fcomp dword ptr [esi + 4] */
     eax = (eax & 0xFFFF0000u) | (uint32_t)(uint16_t)(((g_fp_top & 7u) << 11) | g_fp_cc); /* fnstsw ax <- fpu status */
     _fa = (uint32_t)(HI8(eax)) & 0xFFu; _fb = (uint32_t)(5) & 0xFFu;

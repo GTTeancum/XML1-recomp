@@ -60,6 +60,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Automatic equipment pickup guard failed.' }
     & $python (Join-Path $PSScriptRoot 'guard-frame-limit.py')
     if ($LASTEXITCODE -ne 0) { throw 'Frame-limit guard failed.' }
+    & $python (Join-Path $PSScriptRoot 'guard-frame-limit-pause.py')
+    if ($LASTEXITCODE -ne 0) { throw 'Frame-limit pause guard failed.' }
+    & $python (Join-Path $PSScriptRoot 'guard-nv2a-inline-ack.py')
+    if ($LASTEXITCODE -ne 0) { throw 'NV2A inline kickoff handshake guard failed.' }
     & $python (Join-Path $PSScriptRoot 'guard-script-extensions.py')
     if ($LASTEXITCODE -ne 0) { throw 'Script-extension guard failed.' }
     & $python (Join-Path $PSScriptRoot 'guard-filter-event.py')

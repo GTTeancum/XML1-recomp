@@ -1,0 +1,38 @@
+diff --git a/src/kernel/xbox_memory_layout.c b/src/kernel/xbox_memory_layout.c
+index ac5729c..9d10c48 100644
+--- a/src/kernel/xbox_memory_layout.c
++++ b/src/kernel/xbox_memory_layout.c
+@@ -575,6 +575,12 @@ static void framebuffer_probe_tick(void)
+ static DWORD WINAPI nv2a_ack_thread(LPVOID param)
+ {
+     volatile uint32_t *regs = (volatile uint32_t *)param;
++    /* Poll every millisecond rather than from a Sleep(0) loop. A title whose
++     * own kickoff completes the flush handshake inline (XML1 does) never waits
++     * here, and the spin otherwise occupies a whole core. RECOMP_NV2A_ACK_SPIN
++     * restores the immediate-yield loop for titles that wait on this thread. */
++    HANDLE timer = getenv("RECOMP_NV2A_ACK_SPIN") ? NULL :
++        CreateWaitableTimerExW(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+     while (!InterlockedCompareExchange(&g_nv2a_ack_stop, 0, 0)) {
+         for (size_t i = 0; i < sizeof(NV2A_ACK) / sizeof(NV2A_ACK[0]); i++) {
+             volatile uint32_t *r =
+@@ -703,8 +709,19 @@ static DWORD WINAPI nv2a_ack_thread(LPVOID param)
+         *(volatile uint32_t *)((uintptr_t)(XBOX_KERNEL_DATA_BASE + KDATA_TICK_COUNT)
+                                + g_memory_offset) = GetTickCount();
+ 
+-        Sleep(0);  /* yield; the waiter is spinning on another core */
++        if (timer) {
++            LARGE_INTEGER due;
++            due.QuadPart = -10000;   /* 1 ms */
++            if (SetWaitableTimer(timer, &due, 0, NULL, NULL, FALSE))
++                WaitForSingleObject(timer, INFINITE);
++            else
++                Sleep(1);
++        } else {
++            Sleep(0);  /* yield; the waiter is spinning on another core */
++        }
+     }
++    if (timer)
++        CloseHandle(timer);
+     return 0;
+ }
+ 

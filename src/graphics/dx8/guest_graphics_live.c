@@ -889,3 +889,24 @@ void xml1_graphics_swap(void) {
     g_eax=0; g_esp+=8;
     xml1_fair_leave(&transport_lock);
 }
+
+/* Called from the retail limiter loop at 00011400 before each clock comparison.
+ * Sleep through most of the remaining interval on a high-resolution timer and
+ * leave the final stretch to the original poll, which still decides when the
+ * frame starts and records the real elapsed time. XML1_FRAME_LIMIT_SPIN=1
+ * restores pure polling for A/B measurement. */
+void xml1_frame_limit_pause(double elapsed, float minimum)
+{
+    static HANDLE timer;
+    static int enabled=-1;
+    if(enabled<0) {
+        enabled=!getenv("XML1_FRAME_LIMIT_SPIN");
+        if(enabled) timer=CreateWaitableTimerExW(NULL,NULL,CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,TIMER_ALL_ACCESS);
+        if(!timer) enabled=0;
+    }
+    double remaining=(double)minimum-elapsed;
+    if(!enabled || !(remaining>0.003) || remaining>0.1) return;
+    LARGE_INTEGER due;
+    due.QuadPart=-(LONGLONG)((remaining-0.0015)*1e7);
+    if(SetWaitableTimer(timer,&due,0,NULL,NULL,FALSE)) WaitForSingleObject(timer,INFINITE);
+}

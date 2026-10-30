@@ -125,3 +125,10 @@ preserved under `work/player-stage-backups/hardware-20260916/`.
 
 The already-in-progress NewGame+ source remains part of this candidate. This
 performance pass does not close or certify NewGame+ carry-over validation.
+
+## Follow-up: old-PC CPU pass (October 30, 2026)
+
+[Old-PC performance](OLD-PC-PERFORMANCE.md) removes two spinning loops (the
+NV2A acknowledgement thread and the retail frame limiter's clock poll), cutting
+game-process CPU from about 1.6 to 0.5 core equivalents on an emulated 4-core
+machine with unchanged rendering. Old-hardware results remain unverified.

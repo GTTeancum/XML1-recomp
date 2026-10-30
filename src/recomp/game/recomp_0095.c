@@ -13755,6 +13755,7 @@ loc_0035FC19: ;
     ecx = MEM32(eax + 0x100410);
     ecx = ecx | 0x10000;
     MEM32(eax + 0x100410) = ecx;
+    MEM32(eax + 0x100410) &= ~0x10000u; /* PC: no NV2A; the flush completes when requested. */
     /* nop */
 
 loc_0035FC40: ;
@@ -13766,6 +13767,7 @@ loc_0035FC4C: ;
     ecx = MEM32(esi + 0x1C20);
     edx = edx & 0xFFFFFFF;
     MEM32(ecx + 0x40) = edx;
+    MEM32(ecx + 0x44) = edx; /* PC: GET reaches PUT, as the ack thread did. */
     eax = MEM32(0x36C650);
     _fa = (uint32_t)(eax) & 0xFFFFFFFFu; _fb = (uint32_t)(eax) & 0xFFFFFFFFu;
     _fas = (int32_t)(int32_t)(_fa); _fbs = (int32_t)(int32_t)(_fb); /* test eax, eax (32-bit) */
@@ -13846,6 +13848,7 @@ loc_0035FCC7: ;
     edx = MEM32(eax + 0x100410);
     edx = edx | 0x10000;
     MEM32(eax + 0x100410) = edx;
+    MEM32(eax + 0x100410) &= ~0x10000u; /* PC: no NV2A; the flush completes when requested. */
     goto loc_0035FCF0;
 
     /* nop */
@@ -13859,6 +13862,7 @@ loc_0035FCFC: ;
     ecx = MEM32(ecx + 0x1C20);
     esi = esi & 0xFFFFFFF;
     MEM32(ecx + 0x40) = esi;
+    MEM32(ecx + 0x44) = esi; /* PC: GET reaches PUT, as the ack thread did. */
     goto loc_0035FD10;
 
     /* nop */
