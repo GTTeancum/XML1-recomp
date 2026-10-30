@@ -7,6 +7,8 @@ typedef struct Xml1BuildSettings {
     int performance_logging;
     int graphics_adapter; /* -1: OS/driver preference; otherwise DX8 ordinal. */
     int danger_room_unlock_all; /* Main-menu Danger Room: every mode, character and arena. */
+    int hd_textures; /* Load PNG replacements from hd_texture_pack when it exists. */
+    char hd_texture_pack[260]; /* Relative paths resolve against the game data directory. */
 } Xml1BuildSettings;
 extern Xml1BuildSettings xml1_build_settings;
 /* Missing file uses defaults. Invalid values fail with a useful error. */

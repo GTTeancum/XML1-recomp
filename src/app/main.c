@@ -499,6 +499,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         { char adapter[16];snprintf(adapter,sizeof(adapter),"%d",xml1_build_settings.graphics_adapter);
           _putenv_s("XML1_DX8_ADAPTER",adapter); }
         xml1_performance_start(xml1_build_settings.performance_logging);
+        if(xml1_build_settings.hd_textures) {
+            /* The renderer receives an absolute folder; a missing pack is not an error. */
+            const char *pack=xml1_build_settings.hd_texture_pack;
+            char joined[MAX_PATH*2],full[MAX_PATH];
+            int absolute=pack[0]=='\\' || pack[0]=='/' || (pack[0] && pack[1]==':');
+            snprintf(joined,sizeof(joined),"%s%s%s",absolute?"":(test_game_dir?test_game_dir:YOUR_GAME_DIR),absolute?"":"/",pack);
+            DWORD length=GetFullPathNameA(joined,sizeof(full),full,NULL);
+            DWORD attributes=length && length<sizeof(full)?GetFileAttributesA(full):INVALID_FILE_ATTRIBUTES;
+            if(attributes!=INVALID_FILE_ATTRIBUTES && (attributes&FILE_ATTRIBUTE_DIRECTORY)) {
+                _putenv_s("XML1_DX8_TEXTURE_PACK",full);
+                fprintf(stderr,"[HD TEXTURES] %s\n",full);
+            } else fprintf(stderr,"[HD TEXTURES] pack not found: %s\n",joined);
+        }
         fprintf(stderr,"[BUILD SETTINGS] loose=%d text=%s movie=%s audio=%s\n",
             xml1_build_settings.prefer_files_loose,xml1_build_settings.text_language,
             xml1_build_settings.movie_language,xml1_build_settings.audio_language);

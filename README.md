@@ -65,6 +65,22 @@ and costumes for testing, including after loading a save. Use `0` or `false`
 to disable it, then restart. Unlocks written to a save remain unlocked. If the
 key is absent, modder mode is off.
 
+## HD textures
+
+The renderer loads 4x PNG replacement textures from the `texturepack` folder
+beside `default.xbe`. `HDTextures=0` in `build.ini` restores the original
+textures. Generate the pack from your own game files:
+
+```powershell
+./.venv/Scripts/python.exe scripts/texture-pack.py build --game <game folder> --out <game folder>/texturepack
+```
+
+The generator reads IGB files with the
+[IGB Blender add-on](https://github.com/KaikoClanworth1/igb-blender)'s reader
+(`--igb-reader`, default `work/igb-blender-reference`). The upscale keeps the
+original art: it adds resolution, not new detail. Edited PNGs work as texture
+mods. See [HD textures](docs/HD-TEXTURES.md) for the format and safeguards.
+
 ## Building from source
 
 Development requires Git, Python 3.12, CMake and Visual Studio 2022 Desktop C++

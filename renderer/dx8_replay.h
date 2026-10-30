@@ -56,9 +56,10 @@ static D3DFORMAT replay_format(uint32_t format) {
         default:throw std::runtime_error("Unsupported texture format");
     }
 }
+#include "texture_pack.h"
 struct TextureEntry {
     unsigned width,height; uint32_t packed,hash;
-    uint64_t touched;
+    uint64_t touched; bool replaced;
     std::vector<unsigned char> pixels;
     IDirect3DTexture8* texture;
 };
@@ -96,6 +97,7 @@ static void clear_texture_cache() {
     clear_wire_textures();
     for(auto& entry:texture_cache) entry.texture->Release();
     texture_cache.clear(); texture_cache_bytes=0;
+    texture_pack::clear();
 }
 static void report_texture_cache(unsigned frame) {
     std::printf("[DX8 COMPLETION] waits=%llu\n",completion_waits);
@@ -103,6 +105,7 @@ static void report_texture_cache(unsigned frame) {
         frame,texture_requests,texture_hits,texture_cache.size(),texture_cache_bytes);
     std::printf("[DX8 STATE] requests=%llu calls=%llu\n",state_requests,state_calls);
     std::printf("[DX8 TEXTURE ALLOCATION] creates=%llu reuses=%llu\n",texture_creates,texture_reuses);
+    texture_pack::report();
 }
 static IDirect3DTexture8* read_texture(IDirect3DDevice8* device,FILE* file,unsigned width,unsigned height,uint32_t packed,IDirect3DTexture8* protected_texture=nullptr) {
     const size_t bytes=xml1_texture_bytes(width,height,packed);
@@ -120,17 +123,19 @@ static IDirect3DTexture8* read_texture(IDirect3DDevice8* device,FILE* file,unsig
         }
     }
     unsigned format=packed&255,levels=xml1_texture_levels(packed);
-    IDirect3DTexture8* texture=nullptr;
+    // A pack replacement has its own layout and is complete on return.
+    IDirect3DTexture8* texture=texture_pack::replacement(device,width,height,packed,pixels,replay_format(format));
+    const bool replaced=texture!=nullptr;
     const size_t limit=64u*1024u*1024u;
     // Recycle only an evicted allocation with an identical layout. Dictionary
     // references remain immutable, and stage 0 must survive reading stage 1.
     // Managed LockRect retains the driver's GPU hazard synchronization; never
     // use NOOVERWRITE or mutate a texture still named by a wire token.
-    if(enabled && (texture_cache.size()>=256 || texture_cache_bytes+bytes>limit)) {
+    if(!replaced && enabled && (texture_cache.size()>=256 || texture_cache_bytes+bytes>limit)) {
         size_t candidate=texture_cache.size();
         for(size_t i=0;i<texture_cache.size();++i) {
             const auto &entry=texture_cache[i];
-            if(entry.width!=width || entry.height!=height || entry.packed!=packed || entry.texture==protected_texture)continue;
+            if(entry.replaced || entry.width!=width || entry.height!=height || entry.packed!=packed || entry.texture==protected_texture)continue;
             bool pinned=false;for(const auto &wire:wire_textures)if(wire.texture==entry.texture) {pinned=true;break;}
             if(!pinned && (candidate==texture_cache.size() || entry.touched<texture_cache[candidate].touched))candidate=i;
         }
@@ -143,7 +148,7 @@ static IDirect3DTexture8* read_texture(IDirect3DDevice8* device,FILE* file,unsig
     if(!texture) {checked(device->CreateTexture(width,height,levels,0,replay_format(format),D3DPOOL_MANAGED,&texture));++texture_creates;}
     unsigned w=width,h=height;size_t offset=format==11?1024:0;
     try {
-        for(unsigned level=0;level<levels;++level) {
+        for(unsigned level=0;level<(replaced?0:levels);++level) {
             unsigned rows=(format==12||format==14)?(h+3)/4:h;
             unsigned row_bytes=(format==12||format==14)?((w+3)/4)*(format==12?8:16):w*((format==6||format==7)?4:1);
             D3DLOCKED_RECT lock={}; checked(texture->LockRect(level,&lock,nullptr,0));
@@ -166,7 +171,7 @@ static IDirect3DTexture8* read_texture(IDirect3DDevice8* device,FILE* file,unsig
                 texture_cache[oldest].texture->Release();
                 texture_cache.erase(texture_cache.begin()+oldest);
             }
-            texture_cache.push_back({width,height,packed,hash,texture_requests,std::move(pixels),texture});
+            texture_cache.push_back({width,height,packed,hash,texture_requests,replaced,std::move(pixels),texture});
             texture_cache_bytes+=bytes;
             texture->AddRef(); // Cache owns original reference; caller releases this one.
         }
@@ -445,8 +450,9 @@ static bool replay_stream(IDirect3DDevice8* device, FILE* file, const char* capt
             D3DTSS_ALPHAOP,D3DTSS_ALPHAARG0,D3DTSS_ALPHAARG1,D3DTSS_ALPHAARG2,
             D3DTSS_RESULTARG,D3DTSS_TEXTURETRANSFORMFLAGS};
         for (unsigned stage=0;stage<4;++stage) {
+            const unsigned extra=texture_pack::extra_levels(stage==0?texture:stage==1?second_texture:nullptr);
             for (unsigned t=0;t<22;++t) if (mapping[t])
-                cached_texture_state(device,stage,mapping[t],ts[stage*32+t]);
+                cached_texture_state(device,stage,mapping[t],texture_pack::stage_state(mapping[t],ts[stage*32+t],extra));
             cached_texture_state(device,stage,D3DTSS_TEXCOORDINDEX,ts[stage*32+28]);
             cached_texture_binding(device,stage,stage==0?texture:stage==1?second_texture:nullptr);
         }

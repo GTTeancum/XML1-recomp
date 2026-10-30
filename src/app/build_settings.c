@@ -5,7 +5,7 @@
 #include <ctype.h>
 #include <errno.h>
 
-Xml1BuildSettings xml1_build_settings={1,"eng","eng","eng",0,1,-1};
+Xml1BuildSettings xml1_build_settings={1,"eng","eng","eng",0,1,-1,0,1,"texturepack"};
 int xml1_prefer_files_loose(void) { return xml1_build_settings.prefer_files_loose; }
 static char *trim(char *s) {
     while(isspace((unsigned char)*s)) ++s;
@@ -27,7 +27,7 @@ static int language(const char *s) {
     return 0;
 }
 int xml1_read_build_settings(const char *path,Xml1BuildSettings *out,char *error,unsigned size) {
-    Xml1BuildSettings settings={1,"eng","eng","eng",0,1,-1,0};
+    Xml1BuildSettings settings={1,"eng","eng","eng",0,1,-1,0,1,"texturepack"};
     char allowed[3][128]={"eng,fre,ger","eng","eng"};
     char *defaults[]={settings.text_language,settings.movie_language,settings.audio_language};
     const char *allow_keys[]={"AllowedTextLanguages","AllowedMovieLanguages","AllowedAudioLanguages"};
@@ -68,6 +68,15 @@ int xml1_read_build_settings(const char *path,Xml1BuildSettings *out,char *error
                 if(errno || end==value || *end || n<0 || n>255) {ok=fail(error,size,"graphicsAdapter must be auto or a DX8 adapter index (0-255)");break;}
                 settings.graphics_adapter=(int)n;
             }
+        }
+        if(equal(s,"HDTextures")) {
+            if(equal(value,"1")||equal(value,"true")) settings.hd_textures=1;
+            else if(equal(value,"0")||equal(value,"false")) settings.hd_textures=0;
+            else {ok=fail(error,size,"HDTextures must be 1, true, 0, or false");break;}
+        }
+        if(equal(s,"HDTexturePack")) {
+            if(!*value || strlen(value)>=sizeof(settings.hd_texture_pack)) {ok=fail(error,size,"HDTexturePack must be a folder path shorter than 260 characters");break;}
+            strcpy(settings.hd_texture_pack,value);
         }
         if(equal(s,"modderMode")) {
             if(equal(value,"1")||equal(value,"true")) settings.modder_mode=1;
