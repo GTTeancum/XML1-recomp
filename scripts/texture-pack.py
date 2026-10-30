@@ -1,4 +1,5 @@
-"""Build a 4x HD texture pack of PNG replacements for the native DX8 renderer.
+"""Build a 4x HD texture pack of PNG replacements for the native DX8 renderer,
+or export the original textures (--originals) for an external upscale.
 
 Sources are the game's IGB textures (every igTextureAttr base image) and,
 optionally, renderer dumps (XML1_DX8_TEXTURE_DUMP=<folder>, *.xtex) for
@@ -16,6 +17,7 @@ Tiling is detected per axis so repeat textures keep seamless edges.
 Usage:
   python scripts/texture-pack.py build --game XBOXgame --out XBOXgame/texturepack
   python scripts/texture-pack.py build --game XBOXgame --out XBOXgame/texturepack --dumps build/texture-dump
+  python scripts/texture-pack.py build --game XBOXgame --out XML1-original-textures --originals
 """
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
@@ -186,6 +188,88 @@ def upscale(rgba,wrap_s=True,wrap_t=True):
     out=np.concatenate([np.clip(up,0,1),np.clip(a,0,1)],-1)
     return (out*255.0+0.5).astype(np.uint8)
 
+# ---- learned 4x upscale, locked to the original ----------------------------------
+# An ESRGAN-family model adds real detail. Its output is then corrected by
+# back-projection: the 4x4 box average of every result (what the GPU's next
+# mip levels see) is driven back to the original texel. The model may add
+# detail inside a texel but cannot move colors, shapes or overall tone.
+MODEL_PAD=8          # source texels of wrap/edge context around each texture
+MODEL_TILE=192       # source texels per inference tile (bounded memory)
+MODEL_OVERLAP=12
+BACK_PROJECTION=6
+_session=None
+
+def lower_priority():
+    """Below-normal priority: foreground applications keep precedence."""
+    if os.name=='nt':
+        import ctypes
+        kernel32=ctypes.windll.kernel32
+        kernel32.GetCurrentProcess.restype=ctypes.c_void_p
+        kernel32.SetPriorityClass.argtypes=[ctypes.c_void_p,ctypes.c_uint32]
+        kernel32.SetPriorityClass(kernel32.GetCurrentProcess(),0x4000)
+
+def load_model(path,threads,background=False):
+    """Process initializer: ONNX directly, or an ncnn .param converted once beside the cache."""
+    global _session
+    if background:lower_priority()
+    import onnxruntime as ort
+    path=Path(path)
+    if path.suffix.lower()=='.param':
+        sys.path.insert(0,str(Path(__file__).resolve().parent))
+        from ncnn_to_onnx import convert
+        cached=Path(__file__).resolve().parent.parent/'work'/'texture-pack-models'/(path.stem+'.onnx')
+        if not cached.exists():
+            cached.parent.mkdir(parents=True,exist_ok=True);tmp=cached.with_suffix(f'.{os.getpid()}.tmp')
+            convert(path,path.with_suffix('.bin'),tmp)
+            try:os.replace(tmp,cached)
+            except OSError:tmp.unlink(missing_ok=True)
+        path=cached
+    options=ort.SessionOptions();options.intra_op_num_threads=threads;options.inter_op_num_threads=1
+    providers=[p for p in ('DmlExecutionProvider','CPUExecutionProvider') if p in ort.get_available_providers()]
+    _session=ort.InferenceSession(str(path),options,providers=providers)
+
+def _infer(rgb):
+    """rgb float32 HxWx3 in [0,1] -> 4H x 4W x 3, tiled with overlap."""
+    h,w=rgb.shape[:2];out=np.zeros((h*SCALE,w*SCALE,3),np.float32)
+    name=_session.get_inputs()[0].name;step=MODEL_TILE
+    for y in range(0,h,step):
+        for x in range(0,w,step):
+            y0,x0=max(0,y-MODEL_OVERLAP),max(0,x-MODEL_OVERLAP)
+            y1,x1=min(h,y+step+MODEL_OVERLAP),min(w,x+step+MODEL_OVERLAP)
+            tile=np.ascontiguousarray(rgb[y0:y1,x0:x1].transpose(2,0,1)[None])
+            res=_session.run(None,{name:tile})[0][0].transpose(1,2,0)
+            ty,tx=(y-y0)*SCALE,(x-x0)*SCALE;ny,nx=min(step,h-y)*SCALE,min(step,w-x)*SCALE
+            out[y*SCALE:y*SCALE+ny,x*SCALE:x*SCALE+nx]=res[ty:ty+ny,tx:tx+nx]
+    return out
+
+def box_down(img):
+    h,w=img.shape[0]//SCALE,img.shape[1]//SCALE
+    return img.reshape(h,SCALE,w,SCALE,-1).mean((1,3))
+
+def lanczos_up(img,wrap_x,wrap_y):
+    return upsample_axis(upsample_axis(img,1,wrap_x)[0],0,wrap_y)[0]
+
+def model_upscale(rgba,wrap_s=True,wrap_t=True):
+    """rgba uint8 HxWx4 -> 4x RGBA uint8: model detail, original texel averages."""
+    if (rgba[...,:3]==255).all() or min(rgba.shape[:2])<4:return upscale(rgba,wrap_s,wrap_t)
+    wrap_x=wrap_s and tiles(rgba,1);wrap_y=wrap_t and tiles(rgba,0)
+    f=rgba.astype(np.float32)/255.0
+    opaque=bool((rgba[...,3]==255).all())
+    binary=not opaque and bool(np.isin(rgba[...,3],(0,255)).all())
+    target=fill_hidden(f[...,:3],rgba[...,3]>0) if not opaque and (rgba[...,3]>0).any() else f[...,:3]
+    padded=np.pad(target,((MODEL_PAD,MODEL_PAD),(0,0),(0,0)),mode='wrap' if wrap_y else 'edge')
+    padded=np.pad(padded,((0,0),(MODEL_PAD,MODEL_PAD),(0,0)),mode='wrap' if wrap_x else 'edge')
+    m=MODEL_PAD*SCALE
+    up=np.clip(_infer(np.ascontiguousarray(padded))[m:-m,m:-m],0,1)
+    for _ in range(BACK_PROJECTION):
+        up=np.clip(up+lanczos_up(target-box_down(up),wrap_x,wrap_y),0,1)
+    if opaque:a=np.ones(up.shape[:2]+(1,),np.float32)
+    else:
+        a=upsample(f[...,3:4],wrap_x,wrap_y)[0]
+        if binary:a=(a>=0.5).astype(np.float32)
+    out=np.concatenate([up,np.clip(a,0,1)],-1)
+    return (out*255.0+0.5).astype(np.uint8)
+
 # ---- sources -------------------------------------------------------------------------
 def igb_reader(root):
     pkg=types.ModuleType('igbref');pkg.__path__=[str(root)];sys.modules['igbref']=pkg
@@ -228,12 +312,13 @@ def read_dump(path):
     return texture_key(w,h,fmt,base),w,h,fmt,base
 
 def make(job):
-    key,w,h,fmt,base,wrap_s,wrap_t,out=job
+    key,w,h,fmt,base,wrap_s,wrap_t,out,original=job
     out=Path(out)
     if out.exists():return key,0,0.0
     start=time.perf_counter()
     rgba=decode_wire(base,w,h,fmt)
-    big=upscale(rgba,wrap_s,wrap_t)
+    if original:big=rgba
+    else:big=model_upscale(rgba,wrap_s,wrap_t) if _session and fmt!=25 else upscale(rgba,wrap_s,wrap_t)
     out.parent.mkdir(parents=True,exist_ok=True)
     tmp=out.with_suffix('.tmp')
     if fmt==0:Image.fromarray(big[...,0],'L').save(tmp,'PNG',compress_level=6)
@@ -270,20 +355,36 @@ def build(args):
         parts=t['source'].split('/')
         folder=parts[0] if len(parts)>1 else 'misc'
         stem=Path(parts[-1]).stem.replace(' ','_')
-        jobs.append((key,t['w'],t['h'],t['fmt'],t['base'],t['wrap_s'],t['wrap_t'],str(out/folder/f'{stem}_{key}.png')))
+        jobs.append((key,t['w'],t['h'],t['fmt'],t['base'],t['wrap_s'],t['wrap_t'],str(out/folder/f'{stem}_{key}.png'),args.originals))
     jobs.sort(key=lambda j:-j[1]*j[2])                   # large first: better load balance
     if args.limit:jobs=jobs[:args.limit]
     written=0;total=0;started=time.perf_counter()
-    with ProcessPoolExecutor(args.jobs) as pool:
+    if args.originals and args.model:sys.exit('--originals exports unscaled textures; it does not take --model')
+    if args.background:lower_priority()
+    threads=args.threads or max(1,os.cpu_count()//args.jobs)
+    model=dict(initializer=load_model,initargs=(str(args.model),threads,args.background)) if args.model else           dict(initializer=lower_priority) if args.background else {}
+    with ProcessPoolExecutor(args.jobs,**model) as pool:
         for i,(key,size,seconds) in enumerate(pool.map(make,jobs,chunksize=1),1):
             written+=size>0;total+=size
-            if i%200==0 or i==len(jobs):
+            if i%(20 if args.model else 200)==0 or i==len(jobs):
                 print(f'[TEXTURE PACK] {i}/{len(jobs)} written={written} bytes={total} elapsed={time.perf_counter()-started:.0f}s',flush=True)
-    manifest=dict(format='OpenXML1 HD texture pack',version=PACK_VERSION,scale=SCALE,textures=len(textures),
+    manifest=dict(format='OpenXML1 HD texture pack',version=PACK_VERSION,scale=1 if args.originals else SCALE,textures=len(textures),
                   key='md5(u32 width, u32 height, u32 wire format, wire level 0)[:8]',
-                  method='premultiplied Lanczos-3 4x, 2x2-bounded anti-ringing and sharpening; binary alpha kept binary')
+                  method='original textures, unscaled' if args.originals else
+                         (f'{Path(args.model).stem} 4x, back-projected to the original texel averages' if args.model else
+                          'premultiplied Lanczos-3 4x, 2x2-bounded anti-ringing and sharpening')+'; binary alpha kept binary')
     out.mkdir(parents=True,exist_ok=True)
     (out/'pack.json').write_text(json.dumps(manifest,indent=1)+'\n')
+    if args.originals:
+        (out/'README.txt').write_text(
+            'X-Men Legends original textures, exported at their original size.\n\n'
+            'This folder is a starting point for your own texture pack. Upscale the PNGs\n'
+            'with the tool of your choice by 2x, 4x or 8x (any power of two), keep each\n'
+            'file name, and place the results in the texturepack folder beside\n'
+            'default.xbe. The 16 hex digits before .png identify the texture the game\n'
+            'replaces; subfolders do not matter. Do not use this folder as the pack\n'
+            'unchanged: 1x copies only re-encode the original textures.\n')
+        return
     (out/'README.txt').write_text(
         'X-Men Legends 4x HD texture pack.\n\n'
         'Each PNG replaces the original texture named by the 16 hex digits before .png.\n'
@@ -302,6 +403,11 @@ def main():
                    help='IGB reader root (igb_format/, scene_graph/)')
     b.add_argument('--jobs',type=int,default=os.cpu_count())
     b.add_argument('--limit',type=int,default=0,help='Only the N largest textures (testing)')
+    b.add_argument('--threads',type=int,default=0,help='Model inference threads per job (default: cores / jobs)')
+    b.add_argument('--background',action='store_true',help='Run at below-normal priority')
+    b.add_argument('--originals',action='store_true',help='Export every texture unscaled, as the source for an external upscale')
+    b.add_argument('--model',type=Path,help='4x ESRGAN-family model: .onnx, or ncnn .param/.bin (e.g. Upscayl ultramix-balanced-4x.param). '
+                   'Needs onnxruntime. Without it, the bounded Lanczos upscale is used.')
     a=p.parse_args()
     if a.command=='build':build(a)
 

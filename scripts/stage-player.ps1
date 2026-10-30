@@ -128,9 +128,10 @@ text files and saves are retained; the game reads compiled files in loose mode.
 Edit the compiled counterparts for mods. Existing binary mods are preserved.
 Loose assets and PKGB modding are enabled. See build.ini for configuration.
 
-HD textures: the texturepack folder holds 4x PNG replacements of the game's
-textures. Set HDTextures = 0 in build.ini to play with the original textures.
-Edit or delete a PNG to change or restore that one texture.
+HD textures: PNG replacement textures go in a texturepack folder beside
+default.xbe. Upscale the exported original textures (2x, 4x or 8x) and keep
+each file name. Set HDTextures = 0 in build.ini to play with the original
+textures. Delete a PNG to restore that one texture.
 '@ | Set-Content -LiteralPath (Join-Path $Destination 'Read Me.txt') -Encoding utf8
 New-Item -ItemType Directory -Path (Join-Path $Destination 'runtime/licenses') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $projectRoot 'external/miniz/LICENSE') -Destination (Join-Path $Destination 'runtime/licenses/miniz.txt')

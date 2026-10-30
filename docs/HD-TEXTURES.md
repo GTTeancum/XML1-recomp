@@ -1,8 +1,22 @@
-# 4x HD texture pack
+# HD texture packs
 
 The native DX8 renderer replaces game textures with PNG files from a texture
-pack folder. The pack is generated locally from the player's own game files by
-`scripts/texture-pack.py`; it is a derived game asset and stays out of Git.
+pack folder. The project does not ship an upscaled pack: players make their
+own from an export of the original textures, using the upscaler of their
+choice. `scripts/texture-pack.py` produces that export, and can also build a
+4x pack itself. Exports and packs are derived game assets and stay out of Git.
+
+## Exporting the original textures
+
+```powershell
+python scripts/texture-pack.py build --game XBOXgame --out XML1-original-textures --dumps <dump folder> --originals
+```
+
+Every texture is written once as a PNG at its original size, under the same
+names a pack uses (see below). Upscale the PNGs by any power of two (2x, 4x,
+8x), keep each file name, and place the results in the `texturepack` folder.
+Folders inside the pack do not matter. The export is not meant to be used as a
+pack unchanged: 1x copies only re-encode the original textures.
 
 ## Player use
 
@@ -18,10 +32,10 @@ an error. Relative pack folders are resolved beside `default.xbe`. The game log
 reports the resolved folder as `[HD TEXTURES]`; the renderer log reports
 `[TEXTURE PACK]` with the number of replacements found and load statistics.
 
-## Building the pack
+## Building a 4x pack
 
 ```powershell
-./.venv/Scripts/python.exe scripts/texture-pack.py build --game XBOXgame --out XBOXgame/texturepack
+python scripts/texture-pack.py build --game XBOXgame --out XBOXgame/texturepack --model "C:/Program Files/Upscayl/resources/models/ultramix-balanced-4x.param" --jobs 4
 ```
 
 Every `igTextureAttr` base image in every IGB is a source (DXT1, DXT3 and
@@ -48,15 +62,43 @@ delivers the latter as linear BGRA. Both were confirmed against renderer dumps.
 
 ## Upscaling method
 
-The upscale changes resolution only. In premultiplied alpha, separable
-Lanczos-3 4x interpolation is clamped to the 2x2 source texels surrounding each
-output texel; a mild unsharp mask (sigma 1 output texel, amount 0.6) is clamped
-to the same bounds. No output texel leaves the color range of its source
-neighborhood, so the method cannot add halos, new colors, texture or detail.
-Binary alpha remains binary with smooth contours. Per axis, a texture is
-treated as tiling when its opposite edges continue each other like interior
-neighbors; tiling textures are resampled with wrapped edges so seams stay
-closed. The method is deterministic: rebuilding produces the same files.
+The pack uses a learned 4x super-resolution model, then locks the result to
+the original texture.
+
+1. **Model.** Any ESRGAN-family 4x model, passed with `--model`: an `.onnx`
+   file or an ncnn `.param`/`.bin` pair such as those shipped with Upscayl.
+   `scripts/ncnn_to_onnx.py` converts ncnn models once (cached under
+   `work/texture-pack-models`) and needs only numpy. Inference uses
+   onnxruntime, with DirectML when `onnxruntime-directml` is installed and
+   the CPU otherwise. Each texture gets 8 texels of wrapped (tiling axes) or
+   repeated-edge context; transparent texels are first filled from visible
+   neighbors so they cannot bleed dark colors into edges.
+2. **Lock to the original.** Six back-projection passes drive the 4x4 box
+   average of the output, which is what the following mip levels see, back to
+   the original texel. The model can add detail inside a texel but cannot
+   shift its color, shape or tone.
+3. **Alpha.** Alpha is not passed through the model. It is resampled with
+   bounded Lanczos-3; binary (cut-out) alpha stays binary.
+
+Model selection (24 stratified textures; drift is the RMS difference, 0-255,
+between the 4x4 average of the raw model output and the original):
+
+| Model (Upscayl) | Raw drift | Fine detail vs. Lanczos | Notes |
+| --- | --- | --- | --- |
+| remacri-4x | 4.2 | 4.5x | Posterizes faces and stone into flat shapes; rings around glows |
+| ultramix-balanced-4x | 4.7 | 3.5x | Real wood, lava and fabric detail without new patterns. **Selected** |
+| ultrasharp-4x | 6.2 | 4.4x | Grain and stripe artifacts on gradients |
+| upscayl-standard-4x | 8.3 | 2.7x | |
+| high-fidelity-4x | 8.9 | 1.7x | Little added detail |
+| digital-art-4x | 9.3 | 2.6x | |
+
+After back-projection, ultramix-balanced drift is 0.32 (worst texture 0.89).
+Without `--model`, the builder falls back to the bounded Lanczos upscale
+(resolution only, no learned detail).
+
+On the development machine, Upscayl's ncnn/Vulkan binaries fail to allocate
+memory for the 33 MB models on the Radeon 780M driver (the small models run),
+which is why the models are converted and run through onnxruntime instead.
 
 ## Renderer behavior and flicker safeguards
 
@@ -99,7 +141,16 @@ texture. `XML1_DX8_TEXTURE_DUMP` reveals keys of textures not yet in a pack.
 The pack never changes IGB files, PKGB declarations or resource names, and the
 Xbox data formats are untouched.
 
-## Validation (2026-10-30, Radeon 780M, 1080p)
+## Original-texture export validation (2026-10-30)
+
+- Export: 3,632 textures, 146 MB of PNG, written in about 20 seconds.
+- In game with the export loaded as a pack: all 115 non-movie textures used
+  during boot, menus and the start of the first level matched an exported
+  file, with no load failures. Screenshots showed the same artwork as the
+  original textures; remaining pixel differences were timing (movie frame,
+  camera position, animated markers).
+
+## 4x pack validation (2026-10-30, Radeon 780M, 1080p)
 
 Isolated fixture runs with process-local input only: boot, menus, Begin Story
 and about 90 seconds of the first level, with and without the pack.

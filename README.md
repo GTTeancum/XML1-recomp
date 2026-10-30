@@ -67,18 +67,27 @@ key is absent, modder mode is off.
 
 ## HD textures
 
-The renderer loads 4x PNG replacement textures from the `texturepack` folder
+The renderer loads PNG replacement textures from the `texturepack` folder
 beside `default.xbe`. `HDTextures=0` in `build.ini` restores the original
-textures. Generate the pack from your own game files:
+textures. No upscaled pack is supplied: export the original textures, upscale
+them with the tool of your choice (2x, 4x or 8x), keep the file names, and put
+the results in `texturepack`:
 
 ```powershell
-./.venv/Scripts/python.exe scripts/texture-pack.py build --game <game folder> --out <game folder>/texturepack
+python scripts/texture-pack.py build --game <game folder> --out <export folder> --originals
+```
+
+The same script can build a 4x pack itself:
+
+```powershell
+python scripts/texture-pack.py build --game <game folder> --out <game folder>/texturepack --model <4x model .param or .onnx>
 ```
 
 The generator reads IGB files with the
 [IGB Blender add-on](https://github.com/KaikoClanworth1/igb-blender)'s reader
-(`--igb-reader`, default `work/igb-blender-reference`). The upscale keeps the
-original art: it adds resolution, not new detail. Edited PNGs work as texture
+(`--igb-reader`, default `work/igb-blender-reference`) and runs an
+ESRGAN-family model (for example Upscayl's `ultramix-balanced-4x`) with
+onnxruntime. Each result is locked to the original texture's colors and tones. Edited PNGs work as texture
 mods. See [HD textures](docs/HD-TEXTURES.md) for the format and safeguards.
 
 ## Building from source
