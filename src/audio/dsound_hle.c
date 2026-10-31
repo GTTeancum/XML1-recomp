@@ -17,7 +17,10 @@ void xml1_dsound_output_start(void);
 
 #define STREAM_VTABLE 0x003E1F28u /* CDirectSoundStream XMediaObject vtable in .rdata */
 #define OBJECT_MAGIC 0x4C484453u  /* "DSHL" */
-#define POOL_OBJECTS 1024u
+#define DSERR_NOFREEVOICE 0x88780032u /* AllocateVoices 00372C41 */
+#define DSBCAPS_LOCDEFER 0x00040000u
+#define POOL_OBJECTS 256u /* objects per guest pool; pools are added as needed */
+#define MAX_POOLS 1024u
 #define OBJECT_BYTES 16u
 enum { KIND_FREE, KIND_DEVICE, KIND_BUFFER, KIND_STREAM };
 
@@ -28,9 +31,17 @@ typedef struct {
     uint16_t block_align;
 } Object;
 
+/* XDK buffers and streams are heap objects limited only by memory, so the
+ * guest-visible handles live in pools that are added as the game needs them.
+ * Pool entries are written once and never move. */
+typedef struct {
+    uint32_t base;
+    Object objects[POOL_OBJECTS];
+} Pool;
+
 static SRWLOCK pool_lock = SRWLOCK_INIT;
-static uint32_t pool_base;
-static Object objects[POOL_OBJECTS];
+static Pool *pools[MAX_POOLS];
+static volatile LONG pool_count;
 
 static void fatal(const char *what, uint32_t value)
 {
@@ -68,34 +79,40 @@ static void seen(const char *name)
 static uint32_t object_new(int kind, int voice)
 {
     AcquireSRWLockExclusive(&pool_lock);
-    if (!pool_base) {
-        pool_base = xbox_HeapAlloc(POOL_OBJECTS * OBJECT_BYTES, 16);
-        if (!pool_base) fatal("object pool allocation failed", POOL_OBJECTS * OBJECT_BYTES);
-    }
-    for (uint32_t i = 0; i < POOL_OBJECTS; ++i) {
-        if (objects[i].kind != KIND_FREE) continue;
-        memset(&objects[i], 0, sizeof(objects[i]));
-        objects[i].kind = kind;
-        objects[i].voice = voice;
-        objects[i].references = 1;
-        uint32_t va = pool_base + i * OBJECT_BYTES;
+    for (uint32_t i = 0;; ++i) {
+        if (i == (uint32_t)pool_count * POOL_OBJECTS) {
+            Pool *pool = pool_count < (LONG)MAX_POOLS ? calloc(1, sizeof(Pool)) : NULL;
+            if (!pool || !(pool->base = xbox_HeapAlloc(POOL_OBJECTS * OBJECT_BYTES, 16)))
+                fatal("object pool allocation failed", pool_count);
+            pools[pool_count] = pool;
+            InterlockedIncrement(&pool_count);
+        }
+        Pool *pool = pools[i / POOL_OBJECTS];
+        Object *o = &pool->objects[i % POOL_OBJECTS];
+        if (o->kind != KIND_FREE) continue;
+        memset(o, 0, sizeof(*o));
+        o->kind = kind;
+        o->voice = voice;
+        o->references = 1;
+        uint32_t va = pool->base + i % POOL_OBJECTS * OBJECT_BYTES;
         uint32_t words[4] = {kind == KIND_STREAM ? STREAM_VTABLE : 0, OBJECT_MAGIC, (uint32_t)kind, i};
         memcpy(guest(va, sizeof(words)), words, sizeof(words));
         ReleaseSRWLockExclusive(&pool_lock);
         return va;
     }
-    ReleaseSRWLockExclusive(&pool_lock);
-    fatal("object pool exhausted", POOL_OBJECTS);
-    return 0;
 }
 
 static Object *object(uint32_t va, int kind)
 {
-    if (!pool_base || va < pool_base || va >= pool_base + POOL_OBJECTS * OBJECT_BYTES || (va - pool_base) % OBJECT_BYTES)
-        fatal("call on an object DirectSound did not create", va);
-    Object *o = &objects[(va - pool_base) / OBJECT_BYTES];
-    if (o->kind != kind || read32(va + 4) != OBJECT_MAGIC) fatal("DirectSound object kind mismatch", va);
-    return o;
+    for (LONG p = 0, count = pool_count; p < count; ++p) {
+        uint32_t base = pools[p]->base;
+        if (va < base || va >= base + POOL_OBJECTS * OBJECT_BYTES || (va - base) % OBJECT_BYTES) continue;
+        Object *o = &pools[p]->objects[(va - base) / OBJECT_BYTES];
+        if (o->kind != kind || read32(va + 4) != OBJECT_MAGIC) fatal("DirectSound object kind mismatch", va);
+        return o;
+    }
+    fatal("call on an object DirectSound did not create", va);
+    return NULL;
 }
 
 static uint32_t release(uint32_t va, int kind)
@@ -134,6 +151,9 @@ static void apply_format(Object *o, uint32_t va)
 {
     DsmFormat format;
     read_format(va, &format);
+    if (getenv("XML1_DSOUND_TRACE"))
+        fprintf(stderr, "[DSOUND TRACE] SetFormat voice=%d caller=%08X tag=%04X channels=%u rate=%u block=%u\n",
+            o->voice, read32(g_esp), format.tag, format.channels, format.rate, format.block_align);
     o->block_align = format.block_align;
     dsm_set_format(o->voice, &format);
 }
@@ -235,8 +255,15 @@ void xml1_IDirectSound_CreateSoundBuffer(void)
     uint32_t flags = read32(desc + 4), bytes = read32(desc + 8), format = read32(desc + 12), mixbins = read32(desc + 16);
     if (flags & ~0x000400F0u) fprintf(stderr, "[DSOUND HLE] buffer flags %08X beyond 2D control/defer are ignored\n", flags);
     int voice = dsm_voice_alloc(0, 0);
-    if (voice < 0) fatal("no free voice for CreateSoundBuffer", DSM_MAX_VOICES);
+    if (voice < 0) fatal("out of memory for a sound buffer", 0);
     uint32_t va = object_new(KIND_BUFFER, voice);
+    /* 003715FB: the hardware voice is taken now unless deferred to Play; when
+     * none is free the buffer is destroyed and the error returned (003717E6). */
+    if (!dsm_hw_setup(voice, (flags & 0x200010u) != 0, (flags & DSBCAPS_LOCDEFER) != 0)) {
+        release(va, KIND_BUFFER);
+        finish(4, DSERR_NOFREEVOICE);
+        return;
+    }
     Object *o = object(va, KIND_BUFFER);
     if (format) apply_format(o, format);
     if (getenv("XML1_DSOUND_TRACE") && format)
@@ -262,9 +289,15 @@ void xml1_DirectSoundCreateStream(void)
     uint32_t flags = read32(desc), packets = read32(desc + 4), format = read32(desc + 8);
     if (read32(desc + 12)) fatal("stream completion callbacks are not implemented", read32(desc + 12));
     if (!packets || packets > DSM_MAX_PACKETS) fatal("unsupported stream packet count", packets);
+    if (flags & DSBCAPS_LOCDEFER) fatal("deferred stream voices are not implemented", flags);
     int voice = dsm_voice_alloc(1, packets);
-    if (voice < 0) fatal("no free voice for DirectSoundCreateStream", DSM_MAX_VOICES);
+    if (voice < 0) fatal("out of memory for a sound stream", 0);
     uint32_t va = object_new(KIND_STREAM, voice);
+    if (!dsm_hw_setup(voice, (flags & 0x200010u) != 0, 0)) {
+        release(va, KIND_STREAM);
+        finish(2, DSERR_NOFREEVOICE);
+        return;
+    }
     Object *o = object(va, KIND_STREAM);
     if (format) apply_format(o, format);
     dsm_set_headroom(voice, default_headroom(flags));
@@ -304,8 +337,10 @@ void xml1_IDirectSoundBuffer_Play(void)
     BUFFER();
     uint32_t flags = arg(3);
     trace_buffer("Play", o, flags, 0);
-    dsm_play(o->voice, flags & 1, (flags & 2) != 0);
-    finish(4, 0);
+    /* 00376B0F: a deferred buffer takes its hardware voice here (00376AC1). */
+    int played = dsm_play(o->voice, flags & 1, (flags & 2) != 0);
+    if (!played && getenv("XML1_DSOUND_TRACE")) fprintf(stderr, "[DSOUND TRACE] Play: no free hardware voice caller=%08X\n", read32(g_esp));
+    finish(4, played ? 0 : DSERR_NOFREEVOICE);
 }
 void xml1_IDirectSoundBuffer_Stop(void) { seen("IDirectSoundBuffer_Stop"); BUFFER(); trace_buffer("Stop", o, 0, 0); dsm_stop(o->voice); finish(1, 0); }
 void xml1_IDirectSoundBuffer_StopEx(void)
@@ -434,7 +469,16 @@ void xml1_IDirectSoundStream_SetMixBinVolumes(void)
     set_mixbin_volumes(o, arg(1));
     finish(2, 0);
 }
-void xml1_IDirectSoundStream_SetVolume(void) { seen("IDirectSoundStream_SetVolume"); STREAM(); dsm_set_volume(o->voice, (int32_t)arg(1)); finish(2, 0); }
+void xml1_IDirectSoundStream_SetVolume(void)
+{
+    seen("IDirectSoundStream_SetVolume");
+    STREAM();
+    if (getenv("XML1_DSOUND_TRACE"))
+        fprintf(stderr, "[DSOUND TRACE] StreamVolume voice=%d ms=%llu volume=%d caller=%08X\n",
+            o->voice, (unsigned long long)GetTickCount64(), (int32_t)arg(1), read32(g_esp));
+    dsm_set_volume(o->voice, (int32_t)arg(1));
+    finish(2, 0);
+}
 void xml1_IDirectSoundStream_SetHeadroom(void) { seen("IDirectSoundStream_SetHeadroom"); STREAM(); dsm_set_headroom(o->voice, arg(1)); finish(2, 0); }
 void xml1_IDirectSoundStream_Pause(void) { seen("IDirectSoundStream_Pause"); STREAM(); dsm_stream_pause(o->voice, arg(1) & 1); finish(2, 0); }
 void xml1_IDirectSoundStream_FlushEx(void)
@@ -488,6 +532,11 @@ void xml1_CDirectSoundStream_Process(void)
     DsmPacket packet = {size ? guest(buffer, size) : NULL, size,
                         completed ? guest(completed, 4) : NULL, status ? guest(status, 4) : NULL,
                         (void *)(uintptr_t)event};
+    if (getenv("XML1_DSOUND_TRACE") && size >= 8) {
+        const uint8_t *b = guest(buffer, 8);
+        fprintf(stderr, "[DSOUND TRACE] Process voice=%d buffer=%08X size=%u head=%02X%02X%02X%02X%02X%02X%02X%02X\n",
+            o->voice, buffer, size, b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]);
+    }
     finish(3, dsm_stream_submit(o->voice, &packet) ? 0x80004005u : 0);
 }
 void xml1_CDirectSoundStream_Discontinuity(void) { seen("CDirectSoundStream_Discontinuity"); STREAM(); finish(1, 0); }

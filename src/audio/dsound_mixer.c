@@ -4,6 +4,7 @@
  * held per bin id. Stereo output renders the front pair. */
 #include "audio/dsound_mixer.h"
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 #include <windows.h>
 
@@ -75,12 +76,46 @@ typedef struct {
     unsigned head, count, max_packets;
     uint32_t packet_frame;
     int paused, starved;
+    int hw_pool, hw_deferred, hw_held;
 } Voice;
 
 static SRWLOCK lock = SRWLOCK_INIT;
-static Voice voices[DSM_MAX_VOICES];
+/* Buffer and stream state. XDK buffers are heap objects limited only by
+ * memory, so this storage grows in chunks; chunk pointers never move. */
+#define CHUNK_VOICES 256
+#define MAX_CHUNKS 1024
+static Voice *chunks[MAX_CHUNKS];
+static int chunk_count;
 
-static Voice *voice(int id) { return id >= 0 && id < DSM_MAX_VOICES && voices[id].used ? &voices[id] : NULL; }
+static Voice *voice(int id)
+{
+    if (id < 0 || id >= chunk_count * CHUNK_VOICES) return NULL;
+    Voice *v = &chunks[id / CHUNK_VOICES][id % CHUNK_VOICES];
+    return v->used ? v : NULL;
+}
+
+/* MCPX hardware voices, as the XDK voice manager keeps them: 192 2D and 64 3D
+ * free (00372B51), taken in AllocateVoices (00372BCD) and returned in
+ * FreeVoices (00372C5E). A buffer takes its voice at creation, or at Play
+ * when created with DSBCAPS_LOCDEFER, and a deferred buffer returns it when
+ * playback stops (00376ED7). Every voice here is mono or stereo, which the
+ * XDK counts as one hardware voice (00374B08). */
+static uint32_t hw_free[2] = {192, 64};
+
+static int hw_take(Voice *v)
+{
+    if (v->hw_held) return 1;
+    if (!hw_free[v->hw_pool]) return 0;
+    --hw_free[v->hw_pool];
+    v->hw_held = 1;
+    return 1;
+}
+static void hw_return(Voice *v)
+{
+    if (!v->hw_held) return;
+    ++hw_free[v->hw_pool];
+    v->hw_held = 0;
+}
 
 int64_t dsm_time(void)
 {
@@ -186,6 +221,7 @@ static int pull(Voice *v, float out[2])
 
 static void stop_voice(Voice *v)
 {
+    if (v->hw_deferred) hw_return(v);
     v->playing = 0;
     v->primed = 0;
     v->stop_time = -1;
@@ -327,15 +363,18 @@ void dsm_mix(float *stereo, unsigned frames)
     memset(stereo, 0, sizeof(float) * 2 * frames);
     int64_t now = dsm_time();
     AcquireSRWLockExclusive(&lock);
-    for (int i = 0; i < DSM_MAX_VOICES; ++i)
-        if (voices[i].used) mix_voice(&voices[i], stereo, frames, now);
+    for (int c = 0; c < chunk_count; ++c)
+        for (int i = 0; i < CHUNK_VOICES; ++i)
+            if (chunks[c][i].used) mix_voice(&chunks[c][i], stereo, frames, now);
     ReleaseSRWLockExclusive(&lock);
 }
 
 void dsm_reset(void)
 {
     AcquireSRWLockExclusive(&lock);
-    memset(voices, 0, sizeof(voices));
+    for (int c = 0; c < chunk_count; ++c) memset(chunks[c], 0, sizeof(Voice) * CHUNK_VOICES);
+    hw_free[0] = 192;
+    hw_free[1] = 64;
     ReleaseSRWLockExclusive(&lock);
 }
 
@@ -343,9 +382,13 @@ int dsm_voice_alloc(int stream, uint32_t max_packets)
 {
     int id = -1;
     AcquireSRWLockExclusive(&lock);
-    for (int i = 0; i < DSM_MAX_VOICES; ++i) {
-        if (voices[i].used) continue;
-        Voice *v = &voices[i];
+    for (int i = 0; id < 0; ++i) {
+        if (i == chunk_count * CHUNK_VOICES) {
+            if (chunk_count == MAX_CHUNKS || !(chunks[chunk_count] = calloc(CHUNK_VOICES, sizeof(Voice)))) break;
+            ++chunk_count;
+        }
+        Voice *v = &chunks[i / CHUNK_VOICES][i % CHUNK_VOICES];
+        if (v->used) continue;
         memset(v, 0, sizeof(*v));
         v->used = 1;
         v->stream = stream;
@@ -356,7 +399,6 @@ int dsm_voice_alloc(int stream, uint32_t max_packets)
         v->format.tag = DSM_FORMAT_PCM;
         v->format.rate = DSM_RATE;
         id = i;
-        break;
     }
     ReleaseSRWLockExclusive(&lock);
     return id;
@@ -364,7 +406,14 @@ int dsm_voice_alloc(int stream, uint32_t max_packets)
 
 #define LOCKED(id, body) do { AcquireSRWLockExclusive(&lock); Voice *v = voice(id); if (v) { body; } ReleaseSRWLockExclusive(&lock); } while (0)
 
-void dsm_voice_free(int id) { LOCKED(id, if (v->stream) flush_packets(v); v->used = 0); }
+void dsm_voice_free(int id) { LOCKED(id, if (v->stream) flush_packets(v); hw_return(v); v->used = 0); }
+
+int dsm_hw_setup(int id, int pool_3d, int deferred)
+{
+    int ok = 1;
+    LOCKED(id, v->hw_pool = pool_3d ? 1 : 0; v->hw_deferred = deferred; if (!deferred) ok = hw_take(v));
+    return ok;
+}
 
 static void refresh_frames(Voice *v)
 {
@@ -404,9 +453,13 @@ void dsm_set_envelope(int id, const DsmEnvelope *envelope)
            if (v->eg_stage != EG_RELEASE) { v->eg_stage = envelope->mode ? EG_DELAY : EG_OFF; v->eg_position = 0; });
 }
 
-void dsm_play(int id, int looping, int from_start)
+int dsm_play(int id, int looping, int from_start)
 {
-    LOCKED(id,
+    int ok = 1;
+    AcquireSRWLockExclusive(&lock);
+    Voice *v = voice(id);
+    if (v && !(ok = hw_take(v))) v = NULL;
+    if (v) {
         v->looping = looping;
         if (from_start) { v->cursor = 0; v->primed = 0; }
         if (!v->playing) {
@@ -416,7 +469,10 @@ void dsm_play(int id, int looping, int from_start)
             v->stop_after_release = 0;
             v->eg_stage = v->envelope.mode ? EG_DELAY : EG_OFF;
             v->eg_position = 0;
-        });
+        }
+    }
+    ReleaseSRWLockExclusive(&lock);
+    return ok;
 }
 void dsm_stop(int id) { LOCKED(id, stop_voice(v)); }
 void dsm_stop_at(int id, int64_t time, int envelope)

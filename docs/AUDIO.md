@@ -360,3 +360,41 @@ at Windows High priority and reproducing the same low-FPS scene. If the break-up
 disappears while the frame rate stays low, scheduling is confirmed as the cause.
 Audible verification on a real low-FPS scene is required before treating this as
 resolved; no fidelity claim is made here.
+
+## Hardware voices across level changes
+
+A session that changed level nine times closed with "no free voice for
+CreateSoundBuffer". The HLE gave every buffer a mixer voice for its whole life
+and allowed 512. The game's bank loader (00191130) creates every sound with
+DSBCAPS_LOCDEFER (flags 0x400A0) and keeps recently used banks loaded across
+levels, so loaded sounds piled up: about 30 more stayed loaded after each level
+change, plus a burst of 150-180 while a level played.
+
+The XDK code compiled into the game handles this differently, and the HLE now
+follows it. The voice manager starts with 192 2D and 64 3D hardware voices
+(00372B51); a buffer flagged 0x200010 draws from the 3D pool. AllocateVoices
+(00372BCD) returns DSERR_NOFREEVOICE (0x88780032) when the pool is empty. A
+buffer takes its voice at creation (003715FB) unless it is deferred, in which
+case Play takes it (00376AC1) and the buffer gives it back when playback stops
+(00376ED7 -> 00376DA1 -> FreeVoices 00372C5E). Buffers themselves are heap
+objects limited only by memory, so the HLE handle pools and mixer state now grow
+on demand instead of using fixed tables. Streams are created without the defer
+flag and keep their voice from creation, as in the XDK.
+
+A run of 24 level changes in one session completed without a fatal error and
+never found the hardware pool empty (4,672 buffers created). The run was muted:
+it shows that sound buffers no longer exhaust a fixed pool, not that every sound
+is audibly correct. dsound-mixer-test covers the pool sizes, deferred take and
+return, release on a natural end and on free, and the separate 3D pool.
+
+## Level music layout
+
+XML1_DSOUND_TRACE now also logs SetFormat, stream Process packets and stream
+volumes. A traced run of the first level showed how level music is played: a
+music bank such as nyc1_c holds one sample of two stereo Xbox ADPCM streams
+interleaved in 36864-byte chunks. The music player (00192FD0) reads 73728 bytes
+at a time and gives the first half to one stream and the second half to the
+other; both use the same mix bins, and the game fades each stream independently
+(-390 or silent in the traced run). The menu music is a single stream.
+scripts/zsnd-reference.py decodes a sample as one stream, which is correct for
+menu_c but splices the two layers of a level music bank every 0.74 s.

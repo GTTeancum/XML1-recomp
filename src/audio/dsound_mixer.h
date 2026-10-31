@@ -7,7 +7,6 @@
 #include <stdint.h>
 
 #define DSM_RATE 48000u
-#define DSM_MAX_VOICES 512
 #define DSM_MAX_PACKETS 64
 #define DSM_MAX_BINS 8
 
@@ -48,6 +47,9 @@ typedef struct {
 void dsm_reset(void);
 int dsm_voice_alloc(int stream, uint32_t max_packets);
 void dsm_voice_free(int id);
+/* Hardware voice pool (2D or 3D) and DSBCAPS_LOCDEFER. A non-deferred voice
+ * takes its hardware voice now; 0 means none was free. */
+int dsm_hw_setup(int id, int pool_3d, int deferred);
 void dsm_set_format(int id, const DsmFormat *format);
 void dsm_set_data(int id, const uint8_t *data, uint32_t bytes);
 void dsm_set_loop_region(int id, uint32_t start_bytes, uint32_t length_bytes);
@@ -58,7 +60,8 @@ void dsm_set_mixbins(int id, unsigned count, const uint32_t *bins, const int32_t
 void dsm_set_mixbin_volumes(int id, unsigned count, const uint32_t *bins, const int32_t *volumes);
 void dsm_set_envelope(int id, const DsmEnvelope *envelope);
 
-void dsm_play(int id, int looping, int from_start);
+/* 0 when a deferred voice finds no free hardware voice; nothing plays. */
+int dsm_play(int id, int looping, int from_start);
 void dsm_stop(int id);
 /* StopEx: at a DirectSound reference time (100 ns), optionally via release. */
 void dsm_stop_at(int id, int64_t time, int envelope);

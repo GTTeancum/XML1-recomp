@@ -152,6 +152,40 @@ static void test_scheduled_release(void)
     CHECK(!(dsm_buffer_status(id) & DSM_BSTATUS_PLAYING), "voice survived its release");
 }
 
+/* XDK voice manager rules: 192 2D and 64 3D hardware voices; a deferred
+ * buffer holds one only while playing; buffers themselves are unlimited. */
+static void test_hardware_voices(void)
+{
+    dsm_reset();
+    static int16_t pcm[64];
+    for (int i = 0; i < 64; ++i) pcm[i] = 1000;
+    static int ids[3000];
+    for (int i = 0; i < 3000; ++i) {
+        ids[i] = mono_voice(pcm, 64, DSM_RATE);
+        CHECK(ids[i] >= 0 && dsm_hw_setup(ids[i], 0, 1), "deferred buffer %d not created", i);
+    }
+    int played = 0;
+    for (int i = 0; i < 193; ++i) played += dsm_play(ids[i], 1, 1);
+    CHECK(played == 192, "2D pool allowed %d playing voices, expected 192", played);
+    CHECK(!(dsm_buffer_status(ids[192]) & DSM_BSTATUS_PLAYING), "voice played without a hardware voice");
+    dsm_stop(ids[0]);
+    CHECK(dsm_play(ids[192], 1, 1), "stopped deferred buffer did not return its voice");
+    /* A one-shot that ends returns its voice too. */
+    dsm_stop(ids[1]);
+    CHECK(dsm_play(ids[1], 0, 1), "replay after stop");
+    static float out[256 * 2];
+    dsm_mix(out, 256);
+    CHECK(dsm_play(ids[193], 1, 1), "ended one-shot kept its voice");
+    /* Freeing a buffer returns a held voice; the 3D pool is separate. */
+    dsm_voice_free(ids[2]);
+    CHECK(dsm_play(ids[194], 1, 1), "freed buffer kept its voice");
+    int stream = dsm_voice_alloc(1, 4);
+    CHECK(dsm_hw_setup(stream, 1, 0), "3D pool shared the full 2D pool");
+    int taken = 1;
+    for (int i = 0; i < 64; ++i) taken += dsm_hw_setup(dsm_voice_alloc(0, 0), 1, 0);
+    CHECK(taken == 64, "3D pool held %d voices, expected 64", taken);
+}
+
 static void test_adpcm_fixture(const char *path)
 {
     /* u32 channels, u32 blocks, then ADPCM bytes, then int16 reference frames. */
@@ -186,6 +220,7 @@ int main(int argc, char **argv)
     test_stereo_routing_and_rate();
     test_stream_packets();
     test_scheduled_release();
+    test_hardware_voices();
     if (argc > 1) test_adpcm_fixture(argv[1]);
     printf(failures ? "dsound mixer test: %d failure(s)\n" : "dsound mixer test: all checks passed\n", failures);
     return failures != 0;
