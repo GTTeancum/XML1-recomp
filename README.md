@@ -4,9 +4,9 @@ A Windows recompilation of the original Xbox **X-Men Legends**, built with
 [XboxRecomp](https://github.com/sp00nznet/xboxrecomp) and a native Windows
 **Direct3D 8** renderer.
 
-**[Download 1.0](https://github.com/GTTeancum/XML1-recomp/releases/tag/1.0)**
+**[Download 1.0.1](https://github.com/GTTeancum/XML1-recomp/releases/tag/1.0.1)**
 
-Version 1.0 runs the game natively on Windows at up to 4K, with keyboard/mouse
+Version 1.0.1 runs the game natively on Windows at up to 4K, with keyboard/mouse
 and XInput controls, PC Options and Advanced Options using XML2 menu assets
 recolored for XML1, Angel and Bishop with XML2 combat handlers,
 NewGame+, the stash, loose-file modding and HD texture pack support. An
@@ -29,7 +29,7 @@ for making texture packs.
 Requires 64-bit Windows 10/11 and your own **X-Men Legends (World)** Xbox ISO.
 
 1. Extract the files from your ISO into a writable folder using an Xbox ISO extraction tool.
-2. Extract `XML1-recomp-1.0-win64.zip` into that same folder, replacing the
+2. Extract `XML1-recomp-1.0.1-win64.zip` into that same folder, replacing the
    supplied files. Keep `runtime` and the hidden `.xml1-player-layout` file.
 3. Launch **X-Men Legends.exe**. First-run setup extracts the archive into loose
    assets and generates PKGB manifests
@@ -71,7 +71,7 @@ The renderer loads PNG replacement textures from the `texturepack` folder
 beside `default.xbe`. `HDTextures=0` in `build.ini` restores the original
 textures. No upscaled pack is supplied: upscale the original textures with
 the tool of your choice (2x, 4x or 8x), keep the file names, and put the
-results in `texturepack`. The release's `XML1-recomp-1.0-texture-template.zip`
+results in `texturepack`. The release's `XML1-recomp-1.0.1-texture-template.zip`
 contains every original texture as a PNG; you can also export them from your
 own game files:
 
