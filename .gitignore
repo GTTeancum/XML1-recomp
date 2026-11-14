@@ -25,5 +25,4 @@ __pycache__/
 
 /logs/
 
-/!TEST_BUILD/
 /.local/

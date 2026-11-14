@@ -35,6 +35,6 @@
 
 - All project work stays in C:\Programming\GitHub\XML1recomp, including temporary files, caches, logs and build artifacts. Do not create external workspaces.
 - Keep the user's original Xbox ISO untouched and ignored by Git (`*.iso`). Never commit or upload game assets.
-- `!TEST_BUILD/` is the sole location for all testing and the ONE test build. Reuse and update that build in place; do not create parallel, numbered, backup or alternative test builds.
-- This user instruction supersedes the older `XBOXgame` player-staging location above. Keep the playable test executable, configuration and game data together within `!TEST_BUILD/`; keep test logs, captures and temporary test artifacts inside that same ignored tree.
+- `XBOXgame/` is the sole location for all testing and the ONE test build. Reuse and update that build in place; do not create parallel, numbered, backup or alternative test builds.
+- The user confirmed `XBOXgame/` replaces the briefly selected `!TEST_BUILD/` location. Keep the playable test executable, configuration and game data together within `XBOXgame/`; keep test logs, captures and temporary test artifacts inside that same ignored tree.
 - `.local/` is reserved for non-test investigation/support files; it must not contain a second test build.
