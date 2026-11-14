@@ -52,6 +52,34 @@ an error. Relative pack folders are resolved beside `default.xbe`. The game log
 reports the resolved folder as `[HD TEXTURES]`; the renderer log reports
 `[TEXTURE PACK]` with the number of replacements found and load statistics.
 
+## Optional PlayStation button prompts
+
+Build a small prompt-only pack from the original fonts already in the Xbox data:
+
+```powershell
+.venv/Scripts/python.exe scripts/build-playstation-prompts.py --game XBOXgame --igb-reader .local/igb-blender-reference --out XBOXgame/playstation-prompts
+```
+
+Use a new output folder. Set `HDTextures = 1` and
+`HDTexturePack = playstation-prompts` in the staged `build.ini` to select it.
+Restore the previous pack path to switch back. No original assets are modified.
+To combine this with another pack, replace that pack's three font PNG entries
+using the keys in `prompts.json`; remove older files with the same keys first,
+even if their filename prefixes differ. Duplicate keys are ambiguous.
+
+The builder preserves Xbox font coordinates, spacing and ordinary text pixels,
+and replaces only controller symbols. A/B/X/Y become Cross/Circle/Square/Triangle;
+Black/White become L1/R1, matching this port's XInput shoulder mapping.
+Triggers become L2/R2, with the existing stick-click, Select and Start artwork.
+Standard, widescreen and HD medium fonts are covered; other stock font families
+have no controller glyphs. Same-size replacements are intentional so edited
+symbols also supply their mipmaps instead of reverting to Xbox symbols.
+
+This changes glyph artwork, not controller bindings, controller detection or
+textual binding names such as “A” and “Black” in Advanced Options. A PlayStation
+controller still needs to be exposed to the port through its supported input
+backend. The generated PNGs are private game-derived assets; do not commit them.
+
 ## Building a 4x pack
 
 ```powershell

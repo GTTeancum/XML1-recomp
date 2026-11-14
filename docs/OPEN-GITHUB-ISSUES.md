@@ -151,6 +151,27 @@ has not been identified; the tested 4x pack is deterministic resampling, not
 a validation of any neural upscale or distributed pack. Evidence is under
 XBOXgame/logs/texture-gameplay/ and texture-gameplay-4x/.
 
+PlayStation prompt follow-up for #29: `scripts/build-playstation-prompts.py`
+builds an optional three-texture pack from the user's stock Xbox fonts and
+the PlayStation artwork already present in those assets. It replaces only
+controller glyph rectangles, checking that all other decoded pixels remain
+identical. Xbox font metrics/resources are unchanged. Physical A/B/X/Y map
+to Cross/Circle/Square/Triangle; shoulder/trigger artwork follows the port's
+actual XInput mapping, rather than the differing PS2 atlas order. Standard,
+widescreen and HD medium-font variants are generated. Other font families
+have empty controller glyph slots and are skipped.
+
+Two bounded native menu runs used the pack. All three captured frames were
+inspected: main-menu Cross/Select and Advanced Circle/Back plus Cross/Change
+are correct, with ordinary text and Cerebro intact. Normal Options was also
+inspected; its custom Back footer has no controller glyph. Settings and intro
+were restored after both watchdog exits. Evidence: XBOXgame/logs/
+issue29-playstation-prompts/ and issue29-playstation-advanced/.
+This is optional artwork, not automatic controller detection, a new input
+backend, or renamed textual bindings. Gameplay prompt coverage and physical
+PlayStation controller operation remain unverified. Player instructions are
+in docs/HD-TEXTURES.md; the private pack stays inside XBOXgame.
+
 ## Gameplay and presentation: #30
 
 [#30](https://github.com/GTTeancum/XML1-recomp/issues/30) includes invisible
