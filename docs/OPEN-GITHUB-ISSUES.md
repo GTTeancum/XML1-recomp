@@ -4,6 +4,35 @@ Scope: open issues in GTTeancum/XML1-recomp, excluding #33 at the user's
 direction. Issue bodies and all comments were read on 2026-11-13. Local fixes
 are not published resolutions; do not close issues from tests alone.
 
+## Current assessment (2026-11-14)
+
+The open-issue inventory was rechecked against GitHub. No additional issue
+groups were found. This table describes local work, not GitHub closure status.
+
+| GitHub issue | Local outcome | Evidence and remaining limits |
+| --- | --- | --- |
+| #24 | Fullscreen/aspect handling implemented; 60 FPS retained as the maintainer requested | Native hidden-window geometry, presentation and pointer checks pass. Physical fullscreen interaction and multiple-machine acceptance are unverified. |
+| #27, #28, #31, #32 | Reproduced Conversion Sequencer draw failure fixed | Exact FVF/stride reproducer, indexed/nonindexed pixel tests and movement beyond the old crash point pass. Each reporter's save and transition is unverified; grouping does not prove every report has this same cause. |
+| #29: custom resolutions | Implemented with bounded dimensions and aspect-preserving output | Settings, native geometry/pointer checks and inspected custom-resolution captures pass. Not every GPU/output mode has been tested. |
+| #29: PS2 prompts | Optional pack builder implemented and documented | Native Cross/Select and Circle/Back inspected; ordinary font pixels preserved. Gameplay-wide prompt coverage and physical PlayStation-controller operation are unverified. |
+| #29: texture support/audit | Xbox template export audited; same-size replacement and mip-chain cache defects fixed | 3,631-texture export, native replacement tests and two bounded gameplay runs completed. The unidentified historical flickering pack has not been reproduced or established fixed. PS2 pack identifiers require artwork matching to Xbox keys. |
+| #30: looping Options decorations | Reproduced and fixed in native menu assets | Exact animation attributes traced; native before/after captures checked. No claim about all animations or every transition frame. |
+| #30: brightness/gamma | Native controls, persistence and live Apply implemented | Transaction tests, exact GPU/CPU color checks and native menu captures pass. Measurements cover this development GPU, not all hardware. |
+| #30: custom shaders | Native DX8 assembly effects, menu selection and failure feedback implemented | Twenty readback/MSAA cases, state/pixel/margin tests, cross-ABI transactions, and inspected live selection/error/Off captures pass. Arbitrary shader compatibility and performance are unverified. |
+| #30: invisible enemies | Investigated; no established root cause or fix | Report and user provide no location, enemy, save or reproducer. Inspected visibility/interrupt paths do not establish a defect. |
+| #30: enemies outside map | Investigated; no established root cause or fix | No location, enemy, save or reproducer. Imported teleport path retains native spatial validation; this does not rule out other movement/collision defects. |
+
+Remaining external evidence: a reproducible enemy incident (or affected save)
+and the actual flickering texture pack would permit targeted investigation.
+Do not infer fixes for those symptoms from successful rendering tests or from
+the related defects repaired here. Broader gameplay, audio and multi-machine
+acceptance remain outside the evidence collected so far.
+
+The sole staged executable after the shader-menu work has SHA256
+`e6295e2a09344b6d611f0f5e3593ab03ba6c6eacffc3bb7660d4e48e21e8bf2d`.
+Its embedded renderer integrity check passed. Older hashes below identify
+historical evidence builds, not additional retained player builds.
+
 ## Conversion Sequencer: #27, #28, #31, #32
 
 - [#27](https://github.com/GTTeancum/XML1-recomp/issues/27): walking into the
@@ -58,8 +87,8 @@ fixed with reporter-specific transition coverage unverified; nothing posted.
   Maintainer offered Xbox-specific template support, not authoring a whole pack.
   Resolution validation previously allowed only five exact sizes. Prompt code
   supplies keyboard text and otherwise retains native controller prompts.
-  Remaining: implement/validate PlayStation prompts, audit
-  the existing pack/template workflow against the request.
+  The PlayStation prompt implementation and pack/template audit are documented
+  below; the historical flickering symptom remains unverified.
 
 Custom output dimensions now load from `[PC]` Width/Height in `pc-settings.ini`.
 Bounds are width 640..8192, height 480..8192, and at most 16,777,216 pixels;
@@ -124,9 +153,9 @@ the final staged executable includes both fixes and passes embedded integrity.
 Evidence: XBOXgame/logs/issue29-game/, issue29-prefixed-test.log (reproduced
 failure), issue29-fixed-test.log and issue29-export.log. These results do not
 establish gameplay texture correctness, upscale quality, or shimmer behavior.
-The broader texture audit and PlayStation prompts remain in progress. Existing
-PS2 font artwork is present in the Xbox assets, but its metrics differ from
-the active Xbox HD font and it has not been enabled.
+This initial run preceded the broader gameplay audit and PlayStation prompt
+implementation documented below. The PS2 artwork's differing font metrics
+required glyph-level replacement rather than swapping the whole atlas.
 
 Gameplay follow-up: bounded 90-second Conversion Sequencer runs used the same
 executable with the original-size export and then a private 4x Lanczos pack
@@ -219,8 +248,8 @@ The transform is round(255 * brightness/100 * pow(channel/255, 100/gamma)),
 clamped to 255. It applies to the game image before native capture/Present;
 it never changes a monitor ramp. Neutral values bypass processing. Settings
 round-trip, validation and x64-to-Win32 input-channel tests pass (IPC version
-14). The native menu controls have not yet been authored, so this is not a
-completed response to the requested in-menu display controls.
+14 at this intermediate stage). Native controls and the subsequent version-15
+shader selection channel are documented below.
 
 The initial renderer uses the validated native readback path, a CPU lookup
 table and a native DX8 texture/quad, restoring graphics state afterward.
@@ -232,13 +261,13 @@ and intro fixture were restored; the single executable has the new renderer
 embedded and passes integrity checks. Logs: XBOXgame/logs/issue30-color-*,
 including the game capture in issue30-color-game/.
 
-Performance is unfinished: the 1080p test's four-frame averages include
+The initial performance measurement was incomplete: its four-frame averages include
 initial resource setup and a separate full validation readback, and measure
 roughly 12–23 ms in the initial scenarios. This is not a steady-state gameplay
 performance result. Optimize/measure the nonneutral path before claiming it
 ready, and retain the independent direct-lock path for compatibility. Native
-menu integration, custom shaders, invisible enemies and out-of-map enemies
-remain pending.
+menu integration and custom shaders were still pending at that stage; their
+completed implementations follow below. Both enemy reports remain unresolved.
 
 Color-path performance follow-up: native PS 1.1 dependent texture lookups now
 apply the same 8-bit table on the GPU. A render-target copy supplies the source;
@@ -288,8 +317,7 @@ available and independent CPU upload for direct-lock/fallback devices.
 Malformed/unsupported shader files disable only the effect. Rendering remains
 native DX8; the Windows system assembler compiles the source. Tracked grayscale
 and invert examples and docs/CUSTOM-SHADERS.md explain the supported contract.
-An in-menu selector is still pending, so the full display-settings request is
-not finished.
+This backend step preceded the in-menu selector documented below.
 
 All 20 native readback/MSAA cases pass exact invert pixel checks, edge coverage,
 margin preservation, shader-state restoration and malformed-source rejection.
@@ -333,15 +361,6 @@ fixture. Logs/captures: XBOXgame/logs/issue30-shader-ui/; transaction results:
 issue30-shader-controls.log. Package audit passes. Native Cancel behavior is
 covered by transaction tests, not an additional interactive capture sequence.
 Audio and arbitrary user-authored effects remain unverified.
-
-## Platform: #26
-
-[#26](https://github.com/GTTeancum/XML1-recomp/issues/26) requests Linux support.
-Current game, renderer and input code use Windows APIs, and the repository
-requires genuine DX8 rather than a substitute renderer/wrapper. Remaining:
-assess the build/runtime dependencies and identify the Linux path and any
-constraint requiring an explicit user decision. Do not label Wine execution
-a native Linux port.
 
 ## Working constraints
 
