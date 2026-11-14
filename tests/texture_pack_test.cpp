@@ -123,11 +123,14 @@ int main() {
     unsigned char red[16]={255,255,255,255,255,255,255,255,0x00,0xf8,0x00,0xf8,0,0,0,0};
     unsigned char blue[16]={255,255,255,255,255,255,255,255,0x1f,0x00,0x1f,0x00,0,0,0,0};
     unsigned char yellow[16]={255,255,255,255,255,255,255,255,0xe0,0xff,0xe0,0xff,0,0,0,0};
+    unsigned char green[16]={255,255,255,255,255,255,255,255,0xe0,0x07,0xe0,0x07,0,0,0,0};
     wchar_t path[MAX_PATH];
     std::swprintf(path,MAX_PATH,L"%ls\\actors\\0101_%016llx.png",root,(unsigned long long)texture_pack::texture_key(4,4,14,red));
     write_png(path,16,16,solid(16,16,0xff00ff00));
     std::swprintf(path,MAX_PATH,L"%ls\\bad_%016llx.png",root,(unsigned long long)texture_pack::texture_key(4,4,14,yellow));
     write_png(path,12,16,solid(12,16,0xff00ff00));
+    std::swprintf(path,MAX_PATH,L"%ls\\recolor_%016llx.png",root,(unsigned long long)texture_pack::texture_key(4,4,14,green));
+    write_png(path,4,4,solid(4,4,0xffff00ff));
     REQUIRE(!_wputenv_s(L"XML1_DX8_TEXTURE_PACK",root));
 
     auto lib=LoadLibraryExW(L"d3d8.dll",nullptr,LOAD_LIBRARY_SEARCH_SYSTEM32);REQUIRE(lib);
@@ -160,6 +163,33 @@ int main() {
     draw(device,red,D3DTEXF_NONE);REQUIRE(pixel(device,320,240)==0x00ff00);
     DWORD filter=0;checked(device->GetTextureStageState(0,D3DTSS_MIPFILTER,&filter));REQUIRE(filter==D3DTEXF_LINEAR);
     puts("PASS live draws use the replacement every time, keep unmatched and rejected textures original, and enable mips");
+    draw(device,green,D3DTEXF_NONE);REQUIRE(pixel(device,320,240)==0xff00ff);
+    puts("PASS same-size PNG recolor changes the rendered pixels");
+    // An authored three-level chain must not restore the old green at distance.
+    wire.assign(green,green+16);wire.insert(wire.end(),green,green+16);wire.insert(wire.end(),green,green+16);
+    auto recolor=texture_pack::replacement(device,4,4,14|(3u<<8),wire,D3DFMT_DXT3);
+    REQUIRE(recolor && recolor->GetLevelCount()==3);
+    checked(device->SetTexture(0,recolor));
+    checked(device->SetTextureStageState(0,D3DTSS_MAXMIPLEVEL,2));
+    checked(device->SetTextureStageState(0,D3DTSS_MIPFILTER,D3DTEXF_POINT));
+    struct RecolorVertex {float x,y,z;DWORD color;float u,v;};
+    RecolorVertex triangle[]={{-1,-1,0,~0u,0,1},{3,-1,0,~0u,2,1},{-1,3,0,~0u,0,-1}};
+    checked(device->BeginScene());
+    checked(device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,1,triangle,sizeof(RecolorVertex)));
+    checked(device->EndScene());
+    REQUIRE(pixel(device,320,240)==0xff00ff);
+    checked(device->SetTexture(0,nullptr));recolor->Release();
+    puts("PASS same-size recolor survives the smallest authored mip level");
+    wire.assign(red,red+16);wire.insert(wire.end(),red,red+16);
+    auto chain_a=texture_pack::replacement(device,4,4,14|(2u<<8),wire,D3DFMT_DXT3);
+    REQUIRE(chain_a && chain_a->GetLevelCount()==4);
+    std::memcpy(wire.data()+16,blue,16);
+    auto chain_b=texture_pack::replacement(device,4,4,14|(2u<<8),wire,D3DFMT_DXT3);
+    REQUIRE(chain_b && chain_b!=chain_a && chain_b->GetLevelCount()==4);
+    auto chain_b_again=texture_pack::replacement(device,4,4,14|(2u<<8),wire,D3DFMT_DXT3);
+    REQUIRE(chain_b_again==chain_b);
+    chain_a->Release();chain_b->Release();chain_b_again->Release();
+    puts("PASS cache distinguishes authored mip content and reuses identical chains");
 
     clear_texture_cache();geometry_stream.clear();native_readback.clear();
     device->Release();api->Release();DestroyWindow(window);FreeLibrary(lib);

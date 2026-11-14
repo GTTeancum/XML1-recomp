@@ -17,7 +17,7 @@ Tiling is detected per axis so repeat textures keep seamless edges.
 Usage:
   python scripts/texture-pack.py build --game XBOXgame --out XBOXgame/texturepack
   python scripts/texture-pack.py build --game XBOXgame --out XBOXgame/texturepack --dumps build/texture-dump
-  python scripts/texture-pack.py build --game XBOXgame --out XML1-original-textures --originals
+  python scripts/texture-pack.py build --game XBOXgame --out XBOXgame/original-textures --originals
 """
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
@@ -284,8 +284,8 @@ def scan_igb(job):
     found=[];rel=Path(path).relative_to(game).as_posix()
     try:
         r=IGBReader(path);r.read()
-    except Exception:
-        return rel,found
+    except Exception as error:
+        return rel,found,str(error)
     for o in r.objects:
         if not (isinstance(o,IGBObject) and o.is_type(b'igTextureAttr')):continue
         image=None;wrap=[1,1]
@@ -301,7 +301,7 @@ def scan_igb(job):
         base=bytes(im.pixel_data[:n])
         if fmt==6:base=np.frombuffer(base,np.uint8).reshape(-1,4)[:,[2,1,0,3]].tobytes()
         found.append((texture_key(im.width,im.height,fmt,base),im.width,im.height,fmt,base,wrap[0]!=0,wrap[1]!=0))
-    return rel,found
+    return rel,found,None
 
 def read_dump(path):
     data=Path(path).read_bytes()
@@ -329,10 +329,25 @@ def make(job):
 
 def build(args):
     game=args.game.resolve();out=args.out.resolve()
+    if not game.is_dir():sys.exit(f'Game folder does not exist: {game}')
+    if args.jobs<1:sys.exit('--jobs must be at least 1')
+    if args.limit<0:sys.exit('--limit must not be negative')
+    if args.originals and args.model:sys.exit('--originals exports unscaled textures; it does not take --model')
+    for folder in args.dumps or []:
+        if not folder.is_dir():sys.exit(f'Texture dump folder does not exist: {folder}')
     files=sorted(str(p) for p in game.rglob('*') if p.suffix.lower()=='.igb' and p.is_file() and out not in p.parents)
-    textures={}
+    if files:
+        try:igb_reader(args.igb_reader.resolve())
+        except ImportError as error:
+            sys.exit(f'IGB reader unavailable at {args.igb_reader.resolve()}: {error}. '
+                     'Follow docs/HD-TEXTURES.md setup and pass --igb-reader <checkout>.')
+    textures={};sources={};skipped={}
     with ProcessPoolExecutor(args.jobs) as pool:
-        for rel,found in pool.map(scan_igb,[(f,str(game),str(args.igb_reader.resolve())) for f in files],chunksize=16):
+        for rel,found,error in pool.map(scan_igb,[(f,str(game),str(args.igb_reader.resolve())) for f in files],chunksize=16):
+            if error:
+                skipped[rel]=error
+                print(f'[TEXTURE PACK] skipped {rel}: {error}',file=sys.stderr,flush=True)
+            if found:sources[rel]=sorted({t[0] for t in found})
             for key,w,h,fmt,base,ws,wt in found:
                 if key not in textures:textures[key]=dict(w=w,h=h,fmt=fmt,base=base,wrap_s=ws,wrap_t=wt,source=rel)
     igb_count=len(textures)
@@ -358,8 +373,8 @@ def build(args):
         jobs.append((key,t['w'],t['h'],t['fmt'],t['base'],t['wrap_s'],t['wrap_t'],str(out/folder/f'{stem}_{key}.png'),args.originals))
     jobs.sort(key=lambda j:-j[1]*j[2])                   # large first: better load balance
     if args.limit:jobs=jobs[:args.limit]
+    if not jobs:sys.exit('No supported textures found; check the game and dump folders.')
     written=0;total=0;started=time.perf_counter()
-    if args.originals and args.model:sys.exit('--originals exports unscaled textures; it does not take --model')
     if args.background:lower_priority()
     threads=args.threads or max(1,os.cpu_count()//args.jobs)
     model=dict(initializer=load_model,initargs=(str(args.model),threads,args.background)) if args.model else           dict(initializer=lower_priority) if args.background else {}
@@ -368,13 +383,21 @@ def build(args):
             written+=size>0;total+=size
             if i%(20 if args.model else 200)==0 or i==len(jobs):
                 print(f'[TEXTURE PACK] {i}/{len(jobs)} written={written} bytes={total} elapsed={time.perf_counter()-started:.0f}s',flush=True)
-    manifest=dict(format='OpenXML1 HD texture pack',version=PACK_VERSION,scale=1 if args.originals else SCALE,textures=len(textures),
+    manifest=dict(format='OpenXML1 HD texture pack',version=PACK_VERSION,scale=1 if args.originals else SCALE,textures=len(jobs),skipped_igb=skipped,
                   key='md5(u32 width, u32 height, u32 wire format, wire level 0)[:8]',
                   method='original textures, unscaled' if args.originals else
                          (f'{Path(args.model).stem} 4x, back-projected to the original texel averages' if args.model else
                           'premultiplied Lanczos-3 4x, 2x2-bounded anti-ringing and sharpening')+'; binary alpha kept binary')
     out.mkdir(parents=True,exist_ok=True)
     (out/'pack.json').write_text(json.dumps(manifest,indent=1)+'\n')
+    # Preserve every resource association, including textures shared by several
+    # IGBs. The output PNG prefix alone only identifies the first such resource.
+    exported={j[0] for j in jobs}
+    index=dict(sources={p:[k for k in keys if k in exported] for p,keys in sources.items()
+                        if any(k in exported for k in keys)},
+               textures={j[0]:dict(file=Path(j[7]).relative_to(out).as_posix(),
+                                  width=j[1],height=j[2],wire_format=j[3]) for j in jobs})
+    (out/'sources.json').write_text(json.dumps(index,indent=1)+'\n')
     if args.originals:
         (out/'README.txt').write_text(
             'X-Men Legends original textures, exported at their original size.\n\n'

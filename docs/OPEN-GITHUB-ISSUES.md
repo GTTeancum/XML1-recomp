@@ -97,6 +97,37 @@ Evidence: `XBOXgame/logs/display-aspect/`, `aspect-submission.log`,
 no desktop capture/input or physical fullscreen interaction was performed.
 Audio and full gameplay at every custom aspect are unverified.
 
+Texture-pack audit (#29, requested explicitly by the user): confirmed and fixed
+two renderer defects. Same-size PNGs were decoded but never uploaded because
+the upload loop only visited added upscale levels; the original pixels were
+then copied instead. A 1x edit now supplies every mip from the edited image.
+The native pixel test failed before the fix and passes afterward, including
+sampling the smallest mip. Separately, the GPU replacement cache used only
+the base-image key, allowing different authored mip chains to share the wrong
+allocation. Its identity now includes the full wire chain and packed layout;
+PNG filenames continue using the documented base-image key. Tests cover
+different level counts, different mip bytes, and identical-chain reuse.
+
+Exported 3,631 unique textures from 4,104 IGB files using the documented reader
+revision. All PNGs passed decode/dimension checks. Twelve zero-byte IGBs were
+previously silently skipped; the exporter now logs them and records omissions
+in pack.json. sources.json retains all resource-to-texture associations, even
+when several IGBs share a PNG. Setup instructions now include the missing
+external reader and use the single XBOXgame testing tree. Python checks pass
+(six tests, one optional ONNX test skipped because its runtime is absent).
+
+A bounded native menu run loaded 16 replacements without replacement failures.
+Its capture was inspected: logo, Cerebro background, menu text and A prompt are
+visible and coherent. Temporary configuration/intro changes were restored.
+The capture predates the cache-identity fix, which has native test coverage;
+the final staged executable includes both fixes and passes embedded integrity.
+Evidence: XBOXgame/logs/issue29-game/, issue29-prefixed-test.log (reproduced
+failure), issue29-fixed-test.log and issue29-export.log. These results do not
+establish gameplay texture correctness, upscale quality, or shimmer behavior.
+The broader texture audit and PlayStation prompts remain in progress. Existing
+PS2 font artwork is present in the Xbox assets, but its metrics differ from
+the active Xbox HD font and it has not been enabled.
+
 ## Gameplay and presentation: #30
 
 [#30](https://github.com/GTTeancum/XML1-recomp/issues/30) includes invisible

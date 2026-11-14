@@ -8,9 +8,29 @@ choice. `scripts/texture-pack.py` produces that export, and can also build a
 
 ## Exporting the original textures
 
+Run these commands from the repository root. The exporter needs NumPy, Pillow
+and the external IGB reader; it does not need Blender or a model for an export.
+Keep the reader at the revision used by this project:
+
 ```powershell
-python scripts/texture-pack.py build --game XBOXgame --out XML1-original-textures --dumps <dump folder> --originals
+$env:TEMP = "$PWD/XBOXgame/tmp"
+$env:TMP = $env:TEMP
+$env:PYTHONDONTWRITEBYTECODE = '1'
+New-Item -ItemType Directory -Force XBOXgame/tmp | Out-Null
+.venv/Scripts/python.exe -m pip install --cache-dir .local/pip-cache numpy pillow
+git clone https://github.com/KaikoClanworth1/igb-blender.git .local/igb-blender-reference
+git -C .local/igb-blender-reference checkout a509dcc69438b53bdfe8daeaa793db68fec960b0
+.venv/Scripts/python.exe scripts/texture-pack.py build --game XBOXgame --out XBOXgame/original-textures --igb-reader .local/igb-blender-reference --originals --jobs 4
 ```
+
+Skip the clone if that reader checkout already exists. Optional native renderer
+dumps can be added with `--dumps XBOXgame/texture-dump`.
+`sources.json` maps each IGB resource to its texture keys and each key to its
+PNG, dimensions and wire format. Multiple resources can share one PNG.
+Unreadable IGBs are reported on stderr and in `pack.json` under `skipped_igb`;
+an export with omissions is not proof that every resource was converted.
+PS2 emulator-pack filenames are not Xbox keys: use this Xbox export as the
+template and match the artwork before porting a pack.
 
 Every texture is written once as a PNG at its original size, under the same
 names a pack uses (see below). Upscale the PNGs by any power of two (2x, 4x,
@@ -35,7 +55,7 @@ reports the resolved folder as `[HD TEXTURES]`; the renderer log reports
 ## Building a 4x pack
 
 ```powershell
-python scripts/texture-pack.py build --game XBOXgame --out XBOXgame/texturepack --model "C:/Program Files/Upscayl/resources/models/ultramix-balanced-4x.param" --jobs 4
+python scripts/texture-pack.py build --game XBOXgame --out XBOXgame/texturepack --igb-reader .local/igb-blender-reference --model "C:/Program Files/Upscayl/resources/models/ultramix-balanced-4x.param" --jobs 4
 ```
 
 Every `igTextureAttr` base image in every IGB is a source (DXT1, DXT3 and
@@ -115,6 +135,10 @@ Earlier upscales flickered. This implementation removes each known cause:
   When a stage has mip filtering disabled, the renderer enables linear mip
   filtering for replaced textures only and offsets `MAXMIPLEVEL` by the number
   of added levels. At a distance the game samples its own original mips.
+  A same-size (1x) edit instead supplies the whole mip chain, generated from
+  the edited PNG, so its colors do not revert at a distance. Upscaled packs
+  retain original distant mips; they are intended for detail enhancement,
+  and do not preserve a deliberate recolor at every distance.
 - **Alternating between original and HD art.** Keys cover the whole base
   level. Streamed or animated textures change key each frame and are never in
   the pack, so they stay original rather than switching on matched frames.

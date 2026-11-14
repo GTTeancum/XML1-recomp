@@ -14,7 +14,7 @@
 //   of alternating between pack and original art.
 // - Loading is synchronous. A texture never draws once original and then HD.
 //   A failed replacement is remembered and remains original for the session.
-// - The chain is [upscaled levels..., original levels...]. Distant surfaces
+// - For upscales the chain is [upscaled levels..., original levels...]. Distant surfaces
 //   sample the authored mips. Mip filtering is enabled for replaced textures
 //   whose stage disables it, so a 4x level 0 is never minified unfiltered
 //   (the shimmer/flicker of earlier upscales). MAXMIPLEVEL is offset to match.
@@ -358,15 +358,18 @@ static IDirect3DTexture8 *load(State &s,IDirect3DDevice8 *device,const std::wstr
     checked(device->CreateTexture(pw,ph,levels,0,d3d_format,D3DPOOL_SYSTEMMEM,&staging));
     try {
         unsigned w=pw,h=ph;
-        for(unsigned level=0;level<extra;++level) {
+        // A 1x pack is an edit, not an upscale. Upload its pixels and derive
+        // every mip from that edit; copying the authored chain would erase it.
+        const unsigned generated=extra?extra:levels;
+        for(unsigned level=0;level<generated;++level) {
             D3DLOCKED_RECT lock={};checked(staging->LockRect(level,&lock,nullptr,0));
             encode_level(image,w,h,format,lock);checked(staging->UnlockRect(level));
-            if(level+1<extra)image=half(image,w,h);
+            if(level+1<generated)image=half(image,w,h);
             w=std::max(1u,w/2);h=std::max(1u,h/2);
         }
         // The authored chain follows unchanged, including P8 palette expansion.
         size_t offset=format==11?1024:0;
-        for(unsigned level=0;level<original_levels;++level) {
+        for(unsigned level=0;extra && level<original_levels;++level) {
             const unsigned rows=(format==12||format==14)?(h+3)/4:h;
             const unsigned row_bytes=(format==12||format==14)?((w+3)/4)*(format==12?8:16):w*((format==6||format==7)?4:1);
             D3DLOCKED_RECT lock={};checked(staging->LockRect(extra+level,&lock,nullptr,0));
@@ -396,16 +399,22 @@ static IDirect3DTexture8 *replacement(IDirect3DDevice8 *device,unsigned width,un
     const uint64_t key=texture_key(width,height,packed,wire.data());++s.keys;
     if(s.dumping)dump(s,key,width,height,packed,wire);
     if(!s.active)return nullptr;
-    ++s.clock;
-    auto cached=s.cache.find(key);
-    if(cached!=s.cache.end()) {cached->second.touched=s.clock;++s.hits;cached->second.texture->AddRef();return cached->second.texture;}
     auto file=s.files.find(key);
-    if(file==s.files.end() || s.failed.count(key))return nullptr;
+    if(file==s.files.end())return nullptr;
+    // PNG identity intentionally ignores authored mips. The GPU allocation
+    // cannot: its level count and appended bytes belong to this exact chain.
+    Md5 cache_hash;const uint32_t cache_header[3]={width,height,packed};
+    cache_hash.update(cache_header,sizeof(cache_header));cache_hash.update(wire.data(),wire.size());
+    const uint64_t cache_key=cache_hash.key();
+    ++s.clock;
+    auto cached=s.cache.find(cache_key);
+    if(cached!=s.cache.end()) {cached->second.touched=s.clock;++s.hits;cached->second.texture->AddRef();return cached->second.texture;}
+    if(s.failed.count(cache_key))return nullptr;
     const double started=perf_now_ms();
     size_t bytes=0;IDirect3DTexture8 *texture=nullptr;
     try {texture=load(s,device,file->second,width,height,packed,wire,d3d_format,bytes);}
     catch(const std::exception &error) {
-        s.failed.insert(key);++s.failures;
+        s.failed.insert(cache_key);++s.failures;
         std::fprintf(stderr,"[TEXTURE PACK] %ls: %s; original texture retained\n",file->second.c_str(),error.what());
         return nullptr;
     }
@@ -416,7 +425,7 @@ static IDirect3DTexture8 *replacement(IDirect3DDevice8 *device,unsigned width,un
         for(auto i=s.cache.begin();i!=s.cache.end();++i)if(i->second.touched<oldest->second.touched)oldest=i;
         s.cache_bytes-=oldest->second.bytes;oldest->second.texture->Release();s.cache.erase(oldest);
     }
-    s.cache.emplace(key,Entry{texture,bytes,s.clock});s.cache_bytes+=bytes;
+    s.cache.emplace(cache_key,Entry{texture,bytes,s.clock});s.cache_bytes+=bytes;
     texture->AddRef();
     return texture;
 }
