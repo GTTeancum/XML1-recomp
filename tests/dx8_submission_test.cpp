@@ -75,6 +75,39 @@ int main() {
     command(device,"XMLDX8D8",blue_packet);command(device,"XMLDX8F8",packet);
     REQUIRE(bound_textures[0]!=nullptr);REQUIRE(pixel(device,960,540)==0xff);
     puts("PASS native NULL texture binding renders diffuse white and subsequent textured draw restores blue");
+    // Exact Conversion Sequencer layout. Select UV set 3, so losing or
+    // mis-sizing the extra coordinates produces the wrong sampled color.
+    struct ExtendedVertex {float xyz[3],normal[3];DWORD diffuse;float uv0[2],uv1[2],uv2[3],uv3[3];};
+    static_assert(sizeof(ExtendedVertex)==68,"Sequencer vertex layout");
+    REQUIRE(xml1_fvf_stride(0x500452)==68);
+    REQUIRE(xml1_fvf_stride(0x30102)==16); // XYZ + one 1D coordinate
+    REQUIRE(xml1_fvf_stride(0x20102)==28); // XYZ + one 4D coordinate
+    REQUIRE(!xml1_fvf_stride(0x902)); // impossible set count
+    REQUIRE(!xml1_fvf_stride(0x10002)); // dimensions without a set
+    REQUIRE(!xml1_fvf_stride(0x146)); // transformed positions unsupported
+    const ExtendedVertex extended[]={
+        {{-.8f,-.8f,.5f},{0,0,1},0xffffffff,{.25f,.25f},{0,0},{0,0,0},{.75f,.25f,0}},
+        {{0,.8f,.5f},{0,0,1},0xffffffff,{.25f,.25f},{0,0},{0,0,0},{.75f,.25f,0}},
+        {{.8f,-.8f,.5f},{0,0,1},0xffffffff,{.25f,.25f},{0,0},{0,0,0},{.75f,.25f,0}}};
+    const DWORD uv_colors[]={0xffff0000,0xff00ff00,0xff0000ff,0xffffffff};
+    for(unsigned indexed=0;indexed<2;++indexed) {
+        packet.clear();append(packet,count);
+        uint32_t extended_header[]={2,2,3,6,0x500452,6};append(packet,extended_header);
+        append(packet,viewport);for(unsigned i=0;i<3;++i)append(packet,identity);
+        ts[14]=2;ts[28]=3;
+        append(packet,rs);append(packet,ts);append(packet,material);append(packet,zero);
+        append(packet,second);append(packet,identity);append(packet,identity);
+        append(packet,zero);append(packet,zero);append(packet,uv_colors);
+        uint32_t indices_count=indexed?3:0;append(packet,indices_count);append(packet,three);
+        append(packet,extended);
+        if(indexed){const uint16_t indices[]={0,1,2};append(packet,indices);}
+        command(device,"XMLDX8D9",packet);
+        packet.clear();append(packet,zero);command(device,"XMLDX8F9",packet);
+        DWORD sampled=pixel(device,960,540);
+        printf("Sequencer indexed=%u sampled=%06lx\n",indexed,(unsigned long)sampled);
+        REQUIRE(sampled==0x00ff00);
+    }
+    puts("PASS Sequencer 68-byte FVF samples fourth UV set correctly in indexed and nonindexed strips");
     clear_texture_cache();
     // More than the cache budget of distinct frames forces allocation reuse.
     // One dictionary-pinned texture and the current first-stage texture must

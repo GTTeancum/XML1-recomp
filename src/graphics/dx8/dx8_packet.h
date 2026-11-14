@@ -31,9 +31,16 @@ static size_t xml1_texture_bytes(unsigned width,unsigned height,uint32_t packed)
     }
     return total;
 }
-/* Fixed-function XYZ, optional normal/diffuse, and zero or one 2D UV set. */
+/* Fixed-function XYZ, optional normal/diffuse, and up to eight coordinate
+ * sets. Each set has its own two-bit dimension code: 2, 3, 4, or 1 floats.
+ * Conversion Sequencer uses 0x500452: XYZ, normal, diffuse, 2/2/3/3 UVs. */
 static unsigned xml1_fvf_stride(uint32_t fvf) {
     if(fvf==0x80000001u)return 120; /* CPU NV vertex result, homogeneous DX8 VS input. */
-    if((fvf&~0x152u)||!(fvf&2)) return 0;
-    return 12+((fvf&0x10)?12:0)+((fvf&0x40)?4:0)+((fvf&0x100)?8:0);
+    if((fvf&~0xffff0f52u)||!(fvf&2)) return 0;
+    unsigned count=(fvf>>8)&15, sizes=fvf>>16;
+    if(count>8 || (count<8 && (sizes>>(count*2)))) return 0;
+    unsigned stride=12+((fvf&0x10)?12:0)+((fvf&0x40)?4:0);
+    static const unsigned components[4]={2,3,4,1};
+    for(unsigned i=0;i<count;++i)stride+=4*components[(sizes>>(i*2))&3];
+    return stride;
 }
