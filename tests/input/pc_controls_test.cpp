@@ -582,6 +582,30 @@ int main(int argc,char **argv) {
         REQUIRE(!std::strcmp(label,"Resolution: 1920x1080"));
         REQUIRE(xml1_pc_native_token("pcnative_cancel"));
         REQUIRE(!xml1_pc_native_value(101,label,sizeof(label)));
+        // Display-color edits stay draft until Apply; Cancel preserves saved/live values.
+        REQUIRE(xml1_pc_channel_create(&defaults));
+        REQUIRE(xml1_pc_native_token("pcnative_open"));
+        xml1_pc_native_item(90,"pcnative_brightness");
+        xml1_pc_native_item(91,"pcnative_gamma");
+        REQUIRE(xml1_pc_native_value(90,label,sizeof(label)) && !std::strcmp(label,"Brightness: 100%"));
+        REQUIRE(xml1_pc_native_value(91,label,sizeof(label)) && !std::strcmp(label,"Gamma: 1.00"));
+        REQUIRE(xml1_pc_native_token("pcnative_brightness"));
+        REQUIRE(xml1_pc_native_token("pcnative_gamma"));
+        REQUIRE(xml1_pc_channel_read(&s,1) && s.settings.brightness==100 && s.settings.gamma==100);
+        REQUIRE(xml1_pc_native_token("pcnative_apply"));
+        REQUIRE(xml1_pc_channel_read(&s,1) && s.settings.brightness==105 && s.settings.gamma==105);
+        REQUIRE(xml1_pc_settings_load("pc-settings.ini",&saved_keyboard,error,sizeof(error)));
+        REQUIRE(saved_keyboard.brightness==105 && saved_keyboard.gamma==105);
+        // Both ranges wrap without exceeding settings validation limits.
+        for(int i=0;i<10;++i)REQUIRE(xml1_pc_native_token("pcnative_brightness"));
+        for(int i=0;i<20;++i)REQUIRE(xml1_pc_native_token("pcnative_gamma"));
+        REQUIRE(xml1_pc_native_value(90,label,sizeof(label)) && !std::strcmp(label,"Brightness: 50%"));
+        REQUIRE(xml1_pc_native_value(91,label,sizeof(label)) && !std::strcmp(label,"Gamma: 0.50"));
+        REQUIRE(xml1_pc_native_token("pcnative_cancel"));
+        REQUIRE(xml1_pc_channel_read(&s,1) && s.settings.brightness==105 && s.settings.gamma==105);
+        REQUIRE(xml1_pc_settings_load("pc-settings.ini",&saved_keyboard,error,sizeof(error)));
+        REQUIRE(saved_keyboard.brightness==105 && saved_keyboard.gamma==105);
+        xml1_pc_channel_close();
         // Normal Options prompts work without opening an Advanced transaction.
         REQUIRE(xml1_pc_channel_create(&defaults));xml1_pc_channel_focus(1);
         xml1_pc_native_item(94,"pcnative_view_shake");

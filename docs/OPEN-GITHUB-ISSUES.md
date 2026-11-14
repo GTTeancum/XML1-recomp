@@ -241,7 +241,23 @@ Neutral settings still bypass the pass. Native menu capture with nonneutral
 settings was inspected after updating the single staged executable; logo,
 text, background and prompt remain coherent. Embedded integrity passes.
 Evidence: issue30-color-synchronized.log, issue30-color-gpu-pixels.log and
-issue30-color-gpu-game/ under XBOXgame/logs. Native menu controls remain pending.
+issue30-color-gpu-game/ under XBOXgame/logs.
+
+Native brightness/gamma controls are now integrated into Advanced Options.
+They change in five-point steps (brightness 50–150%, gamma 0.50–2.00),
+wrap at the upper limit, and apply live only when Apply is selected. Cancel
+preserves saved and running values; Defaults restores neutral values.
+The authoring recipe reuses four dormant anchors within the native collector's
+128-transform limit, preserving resource names and PKGB associations.
+Transaction tests pass, including saved/live Apply behavior, range wrapping
+and Cancel. Native controller navigation changed both settings to 105,
+selected Apply, and saved both values. All three native captures were inspected:
+the controls, focus highlight, existing menu content and Cerebro background
+are visible, with the applied color change reflected in the final capture.
+The bounded run ended at its watchdog and restored private settings/intro.
+Evidence: XBOXgame/logs/issue30-color-ui-reused/ and
+issue30-color-ui-controls.log. Audio was muted; this does not verify audio
+or every animation frame. Custom shaders and the enemy reports remain open.
 
 ## Platform: #26
 

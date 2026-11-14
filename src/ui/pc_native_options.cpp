@@ -128,6 +128,10 @@ std::string value(const std::string &key) {
     if(key=="window")return std::string("Window: ")+(s.fullscreen?"Fullscreen":"Windowed");
     if(key=="fsaa")return "FSAA: "+(s.fsaa?std::to_string(s.fsaa)+"x":std::string("Off"));
     if(key=="fsaa_value")return s.fsaa?std::to_string(s.fsaa)+"x":std::string("Off");
+    if(key=="brightness")return "Brightness: "+std::to_string(s.brightness)+"%";
+    if(key=="gamma") {
+        char value[32];std::snprintf(value,sizeof(value),"Gamma: %.2f",s.gamma/100.0);return value;
+    }
     if(key=="keyboard")return std::string("Keyboard / mouse: ")+(s.keyboard_enabled?"On":"Off");
     if(key.size()==9 && key.compare(0,8,"profile_")==0 && key[8]>='1' && key[8]<='4') {
         std::string label="Player "+key.substr(8);
@@ -298,6 +302,8 @@ extern "C" int xml1_pc_native_token(const char *token) {
         else if(!std::strcmp(action,"sensitivity"))s.mouse_sensitivity=s.mouse_sensitivity>=300?25:s.mouse_sensitivity+25;
         else if(!std::strcmp(action,"invert"))s.invert_camera_y=!s.invert_camera_y;
         else if(!std::strcmp(action,"sharing"))s.separate_controllers=!s.separate_controllers;
+        else if(!std::strcmp(action,"brightness"))s.brightness=s.brightness>=150?50:(s.brightness>145?150:s.brightness+5);
+        else if(!std::strcmp(action,"gamma"))s.gamma=s.gamma>=200?50:(s.gamma>195?200:s.gamma+5);
         else {std::fprintf(stderr,"[PC NATIVE] Unknown action: %s\n",action);return 1;}
     }
     std::fprintf(stderr,"[PC NATIVE] action=%s resolution=%ux%u active=%u status=%s\n",action,

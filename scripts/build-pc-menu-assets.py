@@ -104,6 +104,7 @@ def main():
           '--reference', imported / 'original/Texs/tabbtn.png')
     stage('author-menu-binding-columns.py', 'columns', '--input', layout, '--package', advanced_pkg)
     stage('author-menu-device-list.py', 'devices', '--input', layout, '--menu', advanced, '--package', advanced_pkg)
+    stage('author-menu-color-controls.py', 'color', '--input', layout, '--menu', advanced, '--package', advanced_pkg)
     stage('author-menu-view-shake.py', 'shake', '--assets', working, uses_writer=False)
 
     paths, original_models = set(), set()
