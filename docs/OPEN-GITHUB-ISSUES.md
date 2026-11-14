@@ -55,10 +55,31 @@ fixed with reporter-specific transition coverage unverified; nothing posted.
   textures, custom resolutions. Texture replacement already exists and its
   native pixel test passes, but PS2 pack identifiers are not directly compatible.
   Maintainer offered Xbox-specific template support, not authoring a whole pack.
-  Resolution validation currently allows only five exact sizes. Prompt code
+  Resolution validation previously allowed only five exact sizes. Prompt code
   supplies keyboard text and otherwise retains native controller prompts.
-  Remaining: implement/validate custom sizes and PlayStation prompts, audit
+  Remaining: finish arbitrary-aspect presentation validation and PlayStation prompts, audit
   the existing pack/template workflow against the request.
+
+Custom output dimensions now load from `[PC]` Width/Height in `pc-settings.ini`.
+Bounds are width 640..8192, height 480..8192, and at most 16,777,216 pixels;
+the actual GPU must also support creating the requested target. The menu's
+existing resolution presets remain available. Changing another setting keeps
+the custom size; choosing the Resolution control switches to a preset.
+The guest's 4:3 video flags now apply to every exact 4:3 size, not just 640x480.
+
+Settings round-trip/Options-apply tests cover 1600x1200, 1920x1200, 3440x1440,
+5120x1440, 1080x1920 and 1366x768, including invalid dimensions and allocation
+bounds. Window fitting tests cover those sizes. A native 1600x1200 capture
+shows the main menu, background, logo and selection prompt without clipping.
+The run used the single updated executable, ended deliberately after capture,
+and restored its temporary INI/intro. Evidence: `XBOXgame/logs/display/` and
+`display-controls-test.log`. Embedded-renderer integrity checks pass.
+
+Remaining display gap: renderer viewport and presentation currently scale to
+the complete output/client area. Non-4:3/non-16:9 outputs and a fullscreen
+monitor with a different aspect need an explicit aspect-preserving policy and
+matching pointer-coordinate validation. Do not call arbitrary-aspect visuals
+complete from the settings tests or the 4:3 capture.
 
 ## Gameplay and presentation: #30
 

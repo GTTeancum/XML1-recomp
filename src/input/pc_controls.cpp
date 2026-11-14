@@ -89,8 +89,10 @@ extern "C" int xml1_pc_pad_binding_conflict(const Xml1PcSettings *s,unsigned pla
 // Output size is independent of desktop size; window fitting only scales presentation.
 static const uint32_t resolutions[][2]={{640,480},{1280,720},{1920,1080},{2560,1440},{3840,2160}};
 extern "C" int xml1_pc_resolution_supported(uint32_t width,uint32_t height) {
-    for(const auto &mode:resolutions)if(mode[0]==width && mode[1]==height)return 1;
-    return 0;
+    // Custom outputs share the same bounds in the settings file and worker.
+    // Bound both dimensions and allocation size for the 32-bit DX8 process.
+    return width>=640 && height>=480 && width<=8192 && height<=8192 &&
+        (uint64_t)width*height<=4096u*4096u;
 }
 extern "C" void xml1_pc_resolution_next(Xml1PcSettings *s) {
     unsigned next=1; // Keep the existing widescreen menu cycle; 4:3 remains INI-selectable.
@@ -101,7 +103,7 @@ extern "C" void xml1_pc_resolution_next(Xml1PcSettings *s) {
     s->width=resolutions[next][0];s->height=resolutions[next][1];
 }
 extern "C" int xml1_pc_settings_validate(const Xml1PcSettings *s,char *error,unsigned capacity) {
-    if(!xml1_pc_resolution_supported(s->width,s->height)) return fail(error,capacity,"Unsupported resolution");
+    if(!xml1_pc_resolution_supported(s->width,s->height)) return fail(error,capacity,"Resolution must be 640..8192 by 480..8192, at most 16777216 pixels");
     if(s->fullscreen>1 || s->keyboard_enabled>1 || s->separate_controllers>1 ||
        s->invert_camera_y>1 || s->view_shake>1 || s->keyboard_player>3) return fail(error,capacity,"Invalid input/display option");
     if(s->fsaa!=0 && s->fsaa!=2 && s->fsaa!=4 && s->fsaa!=8)

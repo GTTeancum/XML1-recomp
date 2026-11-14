@@ -753,7 +753,12 @@ int main(int argc, char **argv)
         snprintf(resolution,sizeof(resolution),"%ux%u",settings.width,settings.height);
         if(!getenv("XML1_DX8_RESOLUTION"))_putenv_s("XML1_DX8_RESOLUTION",resolution);
         /* Guest mode selection must agree with the output aspect ratio. */
-        if(!strcmp(getenv("XML1_DX8_RESOLUTION"),"640x480"))
+        unsigned output_width=0,output_height=0;char trailing=0;
+        if(sscanf(getenv("XML1_DX8_RESOLUTION"),"%ux%u%c",&output_width,&output_height,&trailing)!=2 ||
+                !xml1_pc_resolution_supported(output_width,output_height)) {
+            fprintf(stderr,"[PC SETTINGS] Invalid output resolution\n");return 4;
+        }
+        if((uint64_t)output_width*3==(uint64_t)output_height*4)
             xbox_kernel_set_video_flags(XC_VIDEO_FLAGS_HDTV_480p);
         else
             xbox_kernel_set_video_flags(XC_VIDEO_FLAGS_WIDESCREEN | XC_VIDEO_FLAGS_HDTV);

@@ -172,7 +172,28 @@ int main(int argc,char **argv) {
             {std::ofstream ini(path);ini<<"[PC]\nWidth=3840\nHeight=2160\n";}
             REQUIRE(xml1_pc_settings_load(path.u8string().c_str(),&mode,error,sizeof(error)));
             REQUIRE(mode.width==3840 && mode.height==2160);
-            mode.height=1080;REQUIRE(!xml1_pc_settings_validate(&mode,error,sizeof(error)));
+            const unsigned custom[][2]={{1600,1200},{1920,1200},{3440,1440},{5120,1440},{1080,1920},{1366,768}};
+            for(const auto &size:custom) {
+                {std::ofstream ini(path);ini<<"[PC]\nWidth="<<size[0]<<"\nHeight="<<size[1]<<"\n";}
+                REQUIRE(xml1_pc_settings_load(path.u8string().c_str(),&mode,error,sizeof(error)));
+                REQUIRE(mode.width==size[0] && mode.height==size[1]);
+                Xml1PcOptionsModel options{};xml1_pc_options_open(&options,&mode);
+                options.draft.mouse_sensitivity=125;
+                REQUIRE(xml1_pc_options_apply(&options,path.u8string().c_str()));
+                REQUIRE(xml1_pc_settings_load(path.u8string().c_str(),&mode,error,sizeof(error)));
+                REQUIRE(mode.width==size[0] && mode.height==size[1]);
+                xml1_pc_resolution_next(&mode);
+                REQUIRE(mode.width==1280 && mode.height==720);
+            }
+            REQUIRE(!xml1_pc_resolution_supported(0,1080));
+            REQUIRE(!xml1_pc_resolution_supported(1920,0));
+            REQUIRE(!xml1_pc_resolution_supported(639,480));
+            REQUIRE(!xml1_pc_resolution_supported(640,479));
+            REQUIRE(!xml1_pc_resolution_supported(8193,480));
+            REQUIRE(!xml1_pc_resolution_supported(640,8193));
+            REQUIRE(!xml1_pc_resolution_supported(0xffffffffu,0xffffffffu));
+            REQUIRE(xml1_pc_resolution_supported(4096,4096));
+            REQUIRE(!xml1_pc_resolution_supported(4096,4097));
             REQUIRE(!xml1_pc_resolution_supported(7680,4320));
             REQUIRE(xml1_pc_settings_save(path.u8string().c_str(),&defaults,error,sizeof(error)));
         }
