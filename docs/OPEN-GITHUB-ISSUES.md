@@ -313,6 +313,27 @@ do not establish either reported root cause. No blanket visibility or position
 override has been introduced. A location/save/reproduction or stronger runtime
 evidence is still needed to connect either symptom to a failing path.
 
+Shader menu follow-up: Advanced Options now cycles Off, Default (the legacy
+build.ini choice), and validated filenames from shaders/. Apply persists the
+selection in pc-settings.ini and updates the renderer live; Cancel leaves the
+applied selection untouched. A renderer failure is reported in the native
+status row while ordinary rendering continues. The existing dormant footer
+link is reused, retaining the 128-anchor layout and original PKGB resources.
+IPC version 15 carries the filename and renderer result. Settings round-trip,
+filename validation, enumeration, Apply/Cancel and error-feedback tests pass,
+including x64/Win32 channel communication.
+
+A bounded native run navigated to the selector, selected grayscale as a draft,
+applied it live, applied a deliberately invalid file, then selected Off. All
+five captures were inspected in order: the draft kept the colored image,
+Apply produced grayscale, the invalid shader restored ordinary color with a
+visible error, and Off cleared the error. Menu content and Cerebro remained
+coherent. The run restored private settings/intro and removed the invalid
+fixture. Logs/captures: XBOXgame/logs/issue30-shader-ui/; transaction results:
+issue30-shader-controls.log. Package audit passes. Native Cancel behavior is
+covered by transaction tests, not an additional interactive capture sequence.
+Audio and arbitrary user-authored effects remain unverified.
+
 ## Platform: #26
 
 [#26](https://github.com/GTTeancum/XML1-recomp/issues/26) requests Linux support.

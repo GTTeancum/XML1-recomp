@@ -489,17 +489,28 @@ static bool replay_stream(IDirect3DDevice8* device, FILE* file, const char* capt
     if(ordered) {completion_pending=true;return false;}
     if (flush) { complete_rendering(device); completion_pending=false; return false; }
     if(live) {
-        Xml1PcInputSnapshot color_settings={};
-        if(xml1_pc_channel_read(&color_settings,1))
+        static Xml1PcInputSnapshot color_settings={};
+        static bool color_known=false;
+        color_known=xml1_pc_channel_read(&color_settings,1) || color_known;
+        if(color_known) {
             display_color.apply(device,native_readback,color_settings.settings.brightness,color_settings.settings.gamma);
-        if(DWORD shader=custom_shader.load(device,std::getenv("XML1_DX8_CUSTOM_SHADER"))) {
+        std::string shader_path;
+        if(!std::strcmp(color_settings.settings.shader,"@build")) {
+            if(const char *configured=std::getenv("XML1_DX8_CUSTOM_SHADER"))shader_path=configured;
+        } else if(*color_settings.settings.shader)shader_path="shaders/"+std::string(color_settings.settings.shader);
+        DWORD shader=custom_shader.load(device,shader_path.c_str());
+        unsigned shader_result=shader?1:(shader_path.empty()?0:2);
+        if(shader) {
             auto content=xml1_fit_content(output_width,output_height,xml1_guest_display_width(source_width,source_height),source_height);
             const RECT area={content.x,content.y,content.x+content.width,content.y+content.height};
             try {custom_shader_frame.apply(device,native_readback,100,100,shader,&area);}
             catch(const std::exception &error) {
                 std::fprintf(stderr,"[CUSTOM SHADER] Effect disabled: %s\n",error.what());
                 custom_shader.disable();custom_shader_frame.clear();
+                shader_result=2;
             }
+        }
+        xml1_pc_channel_shader_result(color_settings.settings.shader,shader_result);
         }
     }
     if (capture) capture_backbuffer(device,capture);

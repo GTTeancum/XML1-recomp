@@ -3,18 +3,31 @@
 The renderer supports an optional single-pass pixel shader applied to the game
 picture after brightness/gamma and before capture/presentation. Black aspect
 margins are excluded. This is native Direct3D 8, not a ReShade effect pipeline.
-An in-menu selector has not yet been implemented.
+Advanced Options provides a shader selector in its lower-right footer. Move
+down from Apply to reach it, select an effect, then select Apply to activate it
+immediately. Cancel discards the pending selection. A failed effect leaves the
+ordinary image active and shows a status message in the menu.
 
-Copy `shaders/grayscale.ps` or `shaders/invert.ps` into `XBOXgame/shaders/`.
-In the `[BUILD]` section of `XBOXgame/build.ini`, select one:
+Copy `shaders/grayscale.ps`, `shaders/invert.ps`, or your own effect into
+`XBOXgame/shaders/`. The selector lists files with a lowercase `.ps` extension,
+up to 63 characters, using letters, digits, spaces, underscores, hyphens and
+dots. Leading spaces and `..` are rejected. Long names are shortened only in
+the displayed label. The selected filename is saved as `[PC] Shader` in
+`pc-settings.ini`; an empty value means Off.
+
+The menu's Default choice (`Shader = @build`) uses the optional legacy
+`CustomShader` value in the `[BUILD]` section of `XBOXgame/build.ini`:
 
 ```ini
 CustomShader = shaders/grayscale.ps
 ```
 
-Start the game to load it. An empty or absent setting disables the effect.
-Relative paths resolve beside the game data. Shader edits take effect on the
-next launch. The game never modifies the source file.
+An empty or absent legacy setting disables the default effect. Relative paths
+resolve beside the game data. Existing PC settings without a Shader entry use
+Default. Explicit Off overrides the legacy setting. Changing the selected file
+and applying reloads the effect live; edits to the same file require selecting
+Off and applying, then selecting the file again and applying, or restarting.
+The game never modifies shader source files.
 
 Files contain DX8 pixel shader assembly (`ps.1.1` through `ps.1.4`), limited
 to 64 KiB. The selected GPU must support the requested version. The Windows

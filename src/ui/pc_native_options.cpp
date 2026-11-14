@@ -10,6 +10,8 @@
 #include <map>
 #include <vector>
 #include <cmath>
+#include <filesystem>
+#include <algorithm>
 
 namespace {
 Xml1PcOptionsModel native_model{};
@@ -142,7 +144,17 @@ std::string value(const std::string &key) {
     if(key=="sensitivity")return "Mouse sensitivity: "+std::to_string(s.mouse_sensitivity)+"%";
     if(key=="invert")return std::string("Invert camera: ")+(s.invert_camera_y?"On":"Off");
     if(key=="sharing")return std::string("Controllers: ")+(s.separate_controllers?"Separate":"Shared");
-    if(key=="status")return native_model.status;
+    if(key=="shader") {
+        std::string name=!*s.shader?"Off":!std::strcmp(s.shader,"@build")?"Default":s.shader;
+        if(name.size()>22)name=name.substr(0,19)+"...";
+        return "Shader: "+name;
+    }
+    if(key=="status") {
+        Xml1PcInputSnapshot current{};
+        if(xml1_pc_channel_read(&current,1) && current.shader_result==2 &&
+           !std::strcmp(current.shader_selection,native_model.applied.shader))return "Shader unavailable; ordinary rendering is active.";
+        return native_model.status;
+    }
     if(key.size()==8 && key.compare(0,7,"device_")==0 && key[7]>='1' && key[7]<='4') {
         const unsigned player=(unsigned)(key[7]-'1');
         const std::string prefix="P"+std::to_string(player+1)+": ";
@@ -304,6 +316,21 @@ extern "C" int xml1_pc_native_token(const char *token) {
         else if(!std::strcmp(action,"sharing"))s.separate_controllers=!s.separate_controllers;
         else if(!std::strcmp(action,"brightness"))s.brightness=s.brightness>=150?50:(s.brightness>145?150:s.brightness+5);
         else if(!std::strcmp(action,"gamma"))s.gamma=s.gamma>=200?50:(s.gamma>195?200:s.gamma+5);
+        else if(!std::strcmp(action,"shader")) {
+            std::vector<std::string> choices={"","@build"};
+            std::error_code error;
+            for(std::filesystem::directory_iterator it("shaders",error),end;!error && it!=end;it.increment(error)) {
+                if(!it->is_regular_file(error))continue;
+                auto candidate=s;auto name=it->path().filename().u8string();
+                if(name.size()>=sizeof(candidate.shader))continue;
+                std::strcpy(candidate.shader,name.c_str());char validation[128];
+                if(xml1_pc_settings_validate(&candidate,validation,sizeof(validation)))choices.push_back(name);
+            }
+            std::sort(choices.begin()+2,choices.end());
+            auto found=std::find(choices.begin(),choices.end(),s.shader);
+            if(found==choices.end() || ++found==choices.end())found=choices.begin();
+            std::strcpy(s.shader,found->c_str());
+        }
         else {std::fprintf(stderr,"[PC NATIVE] Unknown action: %s\n",action);return 1;}
     }
     std::fprintf(stderr,"[PC NATIVE] action=%s resolution=%ux%u active=%u status=%s\n",action,

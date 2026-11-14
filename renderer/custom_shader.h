@@ -13,6 +13,7 @@ class CustomShader {
     IDirect3DDevice8 *device_=nullptr;
     DWORD shader_=0;
     bool attempted_=false;
+    std::string path_;
 public:
     ~CustomShader(){clear();}
     CustomShader()=default;
@@ -21,6 +22,8 @@ public:
     void clear(){if(device_){if(shader_)device_->DeletePixelShader(shader_);device_->Release();}device_=nullptr;shader_=0;attempted_=false;}
     void disable(){clear();attempted_=true;}
     DWORD load(IDirect3DDevice8 *device,const char *path) {
+        const std::string requested=path?path:"";
+        if(requested!=path_){clear();path_=requested;}
         if(attempted_)return shader_;
         attempted_=true;
         if(!path || !*path)return 0;

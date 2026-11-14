@@ -40,6 +40,7 @@ typedef struct Xml1PcSettings {
     uint32_t alternate_pad_bindings[4][XML1_PC_ACTION_COUNT];
     uint32_t view_shake;
     uint32_t brightness, gamma; /* percent; 100 is neutral */
+    char shader[64]; /* empty: Off; @build: build.ini; otherwise a shaders/ filename */
 } Xml1PcSettings;
 
 typedef struct Xml1PcControlState {

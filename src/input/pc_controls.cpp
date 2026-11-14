@@ -24,6 +24,7 @@ extern "C" void xml1_pc_settings_defaults(Xml1PcSettings *s) {
     s->mouse_sensitivity=100;
     s->view_shake=1;
     s->brightness=100;s->gamma=100;
+    std::strcpy(s->shader,"@build");
     const uint32_t keys[]={'W','S','A','D',VK_NUMPAD4,VK_NUMPAD6,VK_SPACE,'E',
         VK_NUMPAD5,'P','O','C',VK_UP,VK_DOWN,VK_LEFT,VK_RIGHT,'M',VK_ESCAPE,VK_F1,
         'I','K','J','L',VK_SHIFT,'1','2','3','4','V'};
@@ -112,6 +113,13 @@ extern "C" int xml1_pc_settings_validate(const Xml1PcSettings *s,char *error,uns
     if(s->mouse_sensitivity<10 || s->mouse_sensitivity>300) return fail(error,capacity,"Mouse sensitivity must be 10 through 300");
     if(s->brightness<50 || s->brightness>150 || s->gamma<50 || s->gamma>200)
         return fail(error,capacity,"Brightness must be 50..150 and gamma 50..200");
+    if(!std::memchr(s->shader,0,sizeof(s->shader)))return fail(error,capacity,"Shader filename is too long");
+    if(std::strcmp(s->shader,"@build")) {
+        std::string name=s->shader;
+        if(!name.empty() && (name.size()<4 || name.front()==' ' || name.substr(name.size()-3)!=".ps" ||
+            name.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-. ")!=std::string::npos ||
+            name.find("..")!=std::string::npos))return fail(error,capacity,"Shader must be a simple .ps filename");
+    }
     for(unsigned player=0;player<4;++player) for(unsigned i=0;i<XML1_PC_ACTION_COUNT;++i) {
         const unsigned a=s->pad_bindings[player][i],b=s->alternate_pad_bindings[player][i];
         if(a>=XML1_PAD_SOURCE_COUNT || b>=XML1_PAD_SOURCE_COUNT)
@@ -158,6 +166,10 @@ extern "C" int xml1_pc_settings_load(const char *path,Xml1PcSettings *out,char *
             auto eq=line.find('=');
             if(eq==std::string::npos) return fail(error,capacity,"PC setting requires name=value");
             auto key=trim(line.substr(0,eq)), value=trim(line.substr(eq+1));
+            if(section=="PC" && key=="Shader") {
+                if(value.size()>=sizeof(s.shader))return fail(error,capacity,"Shader filename is too long");
+                std::strcpy(s.shader,value.c_str());continue;
+            }
             uint32_t n=0; auto parsed=std::from_chars(value.data(),value.data()+value.size(),n);
             if(parsed.ec!=std::errc() || parsed.ptr!=value.data()+value.size())
                 return fail(error,capacity,"PC setting requires an unsigned integer");
@@ -199,6 +211,7 @@ extern "C" int xml1_pc_settings_save(const char *path,const Xml1PcSettings *s,ch
         std::ofstream output(temp,std::ios::binary|std::ios::trunc);
         if(!output) return fail(error,capacity,"Cannot write PC settings");
         output<<"[PC]\n";
+        output<<"Shader = "<<s->shader<<"\n";
         for(const auto &field:fields) output<<field.name<<" = "<<s->*field.member<<"\n";
         for(unsigned player=0;player<4;++player) {
             std::string suffix=player?".Player"+std::to_string(player+1):"";

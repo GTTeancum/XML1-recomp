@@ -30,6 +30,7 @@ int main(int argc,char **argv) {
             char display[32]={};REQUIRE(xml1_pc_channel_get_display(display,sizeof(display)));
             REQUIRE(!std::strcmp(display,"\\\\.\\DISPLAY17"));
             REQUIRE(xml1_pc_channel_set_display("\\\\.\\DISPLAY18"));
+            REQUIRE(xml1_pc_channel_shader_result("cross-abi.ps",2));
             REQUIRE(xml1_pc_channel_read(&profile_snapshot,1));
             REQUIRE(profile_snapshot.settings.keys[3][XML1_PC_FORWARD]=='T');
             REQUIRE(profile_snapshot.settings.pad_bindings[3][XML1_PC_POWER1]==XML1_PAD_RTHUMB);
@@ -45,10 +46,16 @@ int main(int argc,char **argv) {
         REQUIRE(defaults.brightness==100 && defaults.gamma==100);
         {
             auto color=defaults;color.brightness=125;color.gamma=175;
+            std::strcpy(color.shader,"my shader.ps");
             REQUIRE(xml1_pc_settings_save("color-settings-test.ini",&color,error,sizeof(error)));
             Xml1PcSettings loaded={};
             REQUIRE(xml1_pc_settings_load("color-settings-test.ini",&loaded,error,sizeof(error)));
             REQUIRE(loaded.brightness==125 && loaded.gamma==175);
+            REQUIRE(!std::strcmp(loaded.shader,"my shader.ps"));
+            auto invalid=loaded;std::strcpy(invalid.shader,"../outside.ps");
+            REQUIRE(!xml1_pc_settings_validate(&invalid,error,sizeof(error)));
+            std::memset(invalid.shader,'a',sizeof(invalid.shader));
+            REQUIRE(!xml1_pc_settings_validate(&invalid,error,sizeof(error)));
             std::remove("color-settings-test.ini");
             color.brightness=151;REQUIRE(!xml1_pc_settings_validate(&color,error,sizeof(error)));
             color.brightness=50;color.gamma=49;REQUIRE(!xml1_pc_settings_validate(&color,error,sizeof(error)));
@@ -395,6 +402,8 @@ int main(int argc,char **argv) {
             CloseHandle(pi.hThread);CloseHandle(pi.hProcess);REQUIRE(code==0);
             char display[32]={};REQUIRE(xml1_pc_channel_get_display(display,sizeof(display)));
             REQUIRE(!std::strcmp(display,"\\\\.\\DISPLAY18"));
+            Xml1PcInputSnapshot shader_feedback{};REQUIRE(xml1_pc_channel_read(&shader_feedback,1));
+            REQUIRE(shader_feedback.shader_result==2 && !std::strcmp(shader_feedback.shader_selection,"cross-abi.ps"));
         } else {
             xml1_pc_channel_focus(1);xml1_pc_channel_key('W',1);xml1_pc_channel_key('W',0);
             xml1_pc_channel_key('A',1);xml1_pc_channel_mouse(320,240,120);
@@ -606,6 +615,29 @@ int main(int argc,char **argv) {
         REQUIRE(xml1_pc_settings_load("pc-settings.ini",&saved_keyboard,error,sizeof(error)));
         REQUIRE(saved_keyboard.brightness==105 && saved_keyboard.gamma==105);
         xml1_pc_channel_close();
+        // Shader enumeration, live Apply, renderer feedback and Cancel.
+        std::filesystem::create_directory("shaders");
+        std::ofstream("shaders/a.ps")<<"ps.1.1\ntex t0\nmov r0,t0\n";
+        std::ofstream("shaders/b.ps")<<"invalid fixture\n";
+        std::ofstream("shaders/ignored.txt")<<"not a shader";
+        REQUIRE(xml1_pc_channel_create(&defaults));
+        REQUIRE(xml1_pc_native_token("pcnative_open"));
+        xml1_pc_native_item(1088,"pcnative_shader");xml1_pc_native_item(1089,"pcnative_status");
+        REQUIRE(xml1_pc_native_value(1088,label,sizeof(label)) && !std::strcmp(label,"Shader: Default"));
+        REQUIRE(xml1_pc_native_token("pcnative_shader"));
+        REQUIRE(xml1_pc_native_value(1088,label,sizeof(label)) && !std::strcmp(label,"Shader: a.ps"));
+        REQUIRE(xml1_pc_channel_read(&s,1) && !std::strcmp(s.settings.shader,"@build"));
+        REQUIRE(xml1_pc_native_token("pcnative_apply"));
+        REQUIRE(xml1_pc_channel_read(&s,1) && !std::strcmp(s.settings.shader,"a.ps"));
+        REQUIRE(xml1_pc_channel_shader_result("a.ps",2));
+        REQUIRE(xml1_pc_native_value(1089,label,sizeof(label)) && std::strstr(label,"Shader unavailable"));
+        REQUIRE(xml1_pc_native_token("pcnative_shader"));
+        REQUIRE(xml1_pc_native_value(1088,label,sizeof(label)) && !std::strcmp(label,"Shader: b.ps"));
+        REQUIRE(xml1_pc_native_token("pcnative_cancel"));
+        REQUIRE(xml1_pc_settings_load("pc-settings.ini",&saved_keyboard,error,sizeof(error)) && !std::strcmp(saved_keyboard.shader,"a.ps"));
+        REQUIRE(xml1_pc_channel_read(&s,1) && !std::strcmp(s.settings.shader,"a.ps"));
+        xml1_pc_channel_close();
+        for(const char *name:{"shaders/a.ps","shaders/b.ps","shaders/ignored.txt","shaders"})std::filesystem::remove(name);
         // Normal Options prompts work without opening an Advanced transaction.
         REQUIRE(xml1_pc_channel_create(&defaults));xml1_pc_channel_focus(1);
         xml1_pc_native_item(94,"pcnative_view_shake");
