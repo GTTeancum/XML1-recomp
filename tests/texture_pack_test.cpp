@@ -163,6 +163,17 @@ int main() {
     draw(device,red,D3DTEXF_NONE);REQUIRE(pixel(device,320,240)==0x00ff00);
     DWORD filter=0;checked(device->GetTextureStageState(0,D3DTSS_MIPFILTER,&filter));REQUIRE(filter==D3DTEXF_LINEAR);
     puts("PASS live draws use the replacement every time, keep unmatched and rejected textures original, and enable mips");
+    // Alternate pack/non-pack draws with the same guest sampler settings.
+    // The host override must follow the bound texture on every draw, rather
+    // than leaking between materials or alternating original/replacement art.
+    for(unsigned frame=0;frame<16;++frame) {
+        draw(device,red,D3DTEXF_NONE);REQUIRE(pixel(device,320,240)==0x00ff00);
+        checked(device->GetTextureStageState(0,D3DTSS_MIPFILTER,&filter));REQUIRE(filter==D3DTEXF_LINEAR);
+        draw(device,blue,D3DTEXF_NONE);REQUIRE(pixel(device,320,240)==0x0000ff);
+        checked(device->GetTextureStageState(0,D3DTSS_MIPFILTER,&filter));REQUIRE(filter==D3DTEXF_NONE);
+        checked(device->Present(nullptr,nullptr,nullptr,nullptr));
+    }
+    puts("PASS 16 consecutive presentations retain replacement pixels and restore original sampler state");
     draw(device,green,D3DTEXF_NONE);REQUIRE(pixel(device,320,240)==0xff00ff);
     puts("PASS same-size PNG recolor changes the rendered pixels");
     // An authored three-level chain must not restore the old green at distance.

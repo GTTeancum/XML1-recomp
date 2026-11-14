@@ -128,6 +128,29 @@ The broader texture audit and PlayStation prompts remain in progress. Existing
 PS2 font artwork is present in the Xbox assets, but its metrics differ from
 the active Xbox HD font and it has not been enabled.
 
+Gameplay follow-up: bounded 90-second Conversion Sequencer runs used the same
+executable with the original-size export and then a private 4x Lanczos pack
+covering the 88 observed asset textures. Native wire dumps matched between
+runs (89 keys, including one generated 1x1 image). All 88 exported asset PNGs
+decode pixel-identically to the corresponding wire images. Both runs loaded
+88 replacements with zero replacement failures and ended at the deliberate
+watchdog; temporary mission, intro and build.ini changes were restored.
+Both captures were inspected: characters, HUD, water, railings and machinery
+are present with coherent artwork. They are not synchronized frames and do
+not establish absence of motion shimmer. The 4x run retained about 74.7 MiB
+of replacements, took 2.03 seconds total to load them (112.9 ms maximum per
+texture), and applied the mip-filter safeguard on 323,649 draw-stage updates.
+
+The user recalls flickering as the reported texture-pack symptom. A native
+regression now alternates replaced and unmatched materials over 16 consecutive
+presentations, checking the actual pixels and sampler state every iteration.
+It passes: replacement pixels stay consistent and forced mip filtering does
+not leak into the unmatched material. This rules out that bounded failure
+case, not flickering across arbitrary gameplay. The historical problem pack
+has not been identified; the tested 4x pack is deterministic resampling, not
+a validation of any neural upscale or distributed pack. Evidence is under
+XBOXgame/logs/texture-gameplay/ and texture-gameplay-4x/.
+
 ## Gameplay and presentation: #30
 
 [#30](https://github.com/GTTeancum/XML1-recomp/issues/30) includes invisible
