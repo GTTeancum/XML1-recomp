@@ -50,14 +50,15 @@ fixed with reporter-specific transition coverage unverified; nothing posted.
 
 - [#24](https://github.com/GTTeancum/XML1-recomp/issues/24): fullscreen and higher
   FPS. Maintainer explicitly accepted fullscreen and rejected unlocking 60 FPS.
-  Native worker already implements borderless fullscreen; verify behavior.
+  Native worker implements borderless fullscreen; hidden native layout checks
+  now cover the monitor-sized parent and aspect-preserving presentation child.
 - [#29](https://github.com/GTTeancum/XML1-recomp/issues/29): PS2 buttons, HD
   textures, custom resolutions. Texture replacement already exists and its
   native pixel test passes, but PS2 pack identifiers are not directly compatible.
   Maintainer offered Xbox-specific template support, not authoring a whole pack.
   Resolution validation previously allowed only five exact sizes. Prompt code
   supplies keyboard text and otherwise retains native controller prompts.
-  Remaining: finish arbitrary-aspect presentation validation and PlayStation prompts, audit
+  Remaining: implement/validate PlayStation prompts, audit
   the existing pack/template workflow against the request.
 
 Custom output dimensions now load from `[PC]` Width/Height in `pc-settings.ini`.
@@ -75,11 +76,26 @@ The run used the single updated executable, ended deliberately after capture,
 and restored its temporary INI/intro. Evidence: `XBOXgame/logs/display/` and
 `display-controls-test.log`. Embedded-renderer integrity checks pass.
 
-Remaining display gap: renderer viewport and presentation currently scale to
-the complete output/client area. Non-4:3/non-16:9 outputs and a fullscreen
-monitor with a different aspect need an explicit aspect-preserving policy and
-matching pointer-coordinate validation. Do not call arbitrary-aspect visuals
-complete from the settings tests or the 4:3 capture.
+The renderer now fits the game's picture into the requested buffer, clears
+black margins each frame, and maps partial clears and viewports consistently.
+Retail 720x480 storage represents a 4:3 picture, not square pixels. A disabled
+child window presents inside the normal window or fullscreen parent; its
+placement fits the picture without applying a second set of margins when
+render-buffer and monitor aspects differ. All input stays on the parent and
+maps into the same picture bounds. Margin clicks cannot select menu items;
+releases outside the picture still terminate an active drag.
+
+Native submission tests verify margin pixels, partial clears, 480p picture
+geometry and pointer events for 4:3/fullscreen and ultrawide layouts. All 20
+native readback scenarios also present to a child window, including requested
+FSAA off/2x/4x/8x. The final 3440x1440 game capture was inspected: menu, logo,
+background and prompts remain centered inside a 2560x1440 picture with side
+margins. The hidden fullscreen layout on the 1920x1080 monitor reports the
+expected child bounds (-330,0)-(2250,1080), cropping only excess black canvas.
+Evidence: `XBOXgame/logs/display-aspect/`, `aspect-submission.log`,
+`aspect-readback.log`. This validates native buffer output and window geometry;
+no desktop capture/input or physical fullscreen interaction was performed.
+Audio and full gameplay at every custom aspect are unverified.
 
 ## Gameplay and presentation: #30
 

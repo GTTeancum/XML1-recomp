@@ -4,16 +4,21 @@
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>
+#include "aspect_layout.h"
 
 // Transport window input to the game. Options are rendered by the game's
 // native menu system from its packaged IGB resources, never by this worker.
 namespace pc_ui {
 static unsigned client_width=1280,client_height=720;
+static unsigned aspect_width=1280,aspect_height=720;
 static void input_key(unsigned value,bool down) {
     xml1_pc_channel_key(value,down);
 }
 static void input_mouse(int x,int y,unsigned button,bool down,int wheel) {
-    if(!xml1_pc_channel_pointer_event(x,y,button,down,wheel,client_width,client_height)) {
+    const auto inner=xml1_fit_content(client_width,client_height,aspect_width,aspect_height);
+    x-=inner.x;y-=inner.y;
+    if(!xml1_pc_channel_pointer_event(x,y,button,down,wheel,inner.width,inner.height)) {
+        if((x<0 || y<0 || x>=inner.width || y>=inner.height) && (down || wheel))return;
         xml1_pc_channel_mouse(x,y,wheel);
         if(button)xml1_pc_channel_key(button,down);
     }

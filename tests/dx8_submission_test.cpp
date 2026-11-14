@@ -26,6 +26,28 @@ static DWORD pixel(IDirect3DDevice8 *device,unsigned x,unsigned y) {
 int main() {
  try {
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);
+    Xml1PcSettings settings{};xml1_pc_settings_defaults(&settings);
+    REQUIRE(xml1_pc_channel_create(&settings));xml1_pc_channel_focus(1);
+    REQUIRE(xml1_pc_channel_native_pointer(1));
+    pc_ui::client_width=1920;pc_ui::client_height=1080;
+    pc_ui::aspect_width=640;pc_ui::aspect_height=480;
+    Xml1PcMenuPointer pointer{};
+    pc_ui::input_mouse(100,540,VK_LBUTTON,true,0);
+    REQUIRE(!xml1_pc_channel_pointer_read(&pointer)); // black margin cannot click
+    pc_ui::input_mouse(960,540,VK_LBUTTON,true,0);
+    REQUIRE(xml1_pc_channel_pointer_read(&pointer));
+    REQUIRE(pointer.x==720 && pointer.y==540 && pointer.width==1440 && pointer.height==1080 && pointer.button==VK_LBUTTON);
+    pc_ui::input_mouse(100,540,VK_LBUTTON,false,0);
+    REQUIRE(xml1_pc_channel_pointer_read(&pointer));
+    REQUIRE(pointer.x==-140 && !pointer.buttons); // releases outside must end drag
+    pc_ui::client_width=3440;
+    pc_ui::client_height=1440;
+    pc_ui::aspect_width=1280;pc_ui::aspect_height=720;
+    pc_ui::input_mouse(1720,720,VK_LBUTTON,true,0);
+    REQUIRE(xml1_pc_channel_pointer_read(&pointer));
+    REQUIRE(pointer.x==1280 && pointer.y==720 && pointer.width==2560 && pointer.height==1440);
+    xml1_pc_channel_close();
+    puts("PASS fullscreen/custom-aspect pointer positions, margin rejection and outside drag release");
     auto lib=LoadLibraryExW(L"d3d8.dll",nullptr,LOAD_LIBRARY_SEARCH_SYSTEM32);REQUIRE(lib);
     auto create=(IDirect3D8*(WINAPI*)(UINT))GetProcAddress(lib,"Direct3DCreate8");REQUIRE(create);
     auto api=create(D3D_SDK_VERSION);REQUIRE(api);
@@ -37,6 +59,10 @@ int main() {
     checked(device->Clear(0,nullptr,D3DCLEAR_TARGET,0,1,0));
     checked(native_readback.initialize(device));
     output_width=1920;output_height=1080;
+    source_width=720;source_height=480;
+    auto retail=output_viewport({0,0,720,480,0,1});
+    REQUIRE(retail.X==240 && retail.Y==0 && retail.Width==1440 && retail.Height==1080);
+    source_width=640;source_height=480;
     uint32_t clear[]={0xf1,0xffff0000,0x3f800000,0,0};
     std::vector<unsigned char> packet;append(packet,clear);command(device,"XMLDX8C5",packet);
     REQUIRE(completion_waits==0);
@@ -56,8 +82,9 @@ int main() {
     packet.clear();clear[1]=0xff00ff00;clear[4]=1;append(packet,clear);D3DRECT corner={0,0,20,20};append(packet,corner);
     command(device,"XMLDX8C5",packet);REQUIRE(completion_waits==0);
     packet.clear();append(packet,zero);command(device,"XMLDX8F8",packet);REQUIRE(completion_waits==1);
-    REQUIRE(pixel(device,960,540)==0xff);REQUIRE(pixel(device,10,10)==0xff00);REQUIRE(pixel(device,1800,100)==0xff0000);
+    REQUIRE(pixel(device,960,540)==0xff);REQUIRE(pixel(device,250,10)==0xff00);REQUIRE(pixel(device,1600,100)==0xff0000);
     command(device,"XMLDX8F8",packet);REQUIRE(completion_waits==1);
+    REQUIRE(pixel(device,10,10)==0 && pixel(device,1800,100)==0);
     puts("PASS ordered draw/partial clear preserves pixels; explicit fence completes once; redundant empty fence does not wait");
     // Bind blue, explicitly unbind it, then bind blue again. No placeholder
     // texture is allowed: inspect both native binding and the rendered pixels.

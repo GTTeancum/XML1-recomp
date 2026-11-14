@@ -56,6 +56,22 @@ See the included `Read Me.txt` for the full default controls. Display and input
 assignment changes require a restart. PC preferences are stored in
 `pc-settings.ini`; original save data lives in `UDATA` and `TDATA`.
 
+For a custom resolution, edit `pc-settings.ini` while the game is closed:
+
+```ini
+[PC]
+Width=3440
+Height=1440
+Fullscreen=1
+```
+
+Custom sizes may be 640–8192 pixels wide and 480–8192 pixels high, with at
+most 16,777,216 pixels total, subject to graphics-device support. The Resolution
+control in Advanced Options cycles the standard presets; changing other
+options preserves your custom size. Exact 4:3 sizes use the game's 4:3 mode;
+other sizes use its widescreen mode. Black margins preserve the original
+picture proportions on other aspect ratios. Fullscreen uses a borderless window.
+
 `build.ini` selects installed languages and asset loading. `PreferFilesLoose=1`
 (or `true`) uses loose resources and PKGBs with **no archive fallback**. The new
 PC menus were validated in English; localized PC menu adaptation is not complete.

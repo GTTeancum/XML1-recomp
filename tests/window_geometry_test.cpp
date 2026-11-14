@@ -1,7 +1,12 @@
 #include "../renderer/window_geometry.h"
+#include "../renderer/aspect_layout.h"
 #include <cstdio>
 #include <cstdlib>
 int main() {
+    auto ultrawide=xml1_presentation_rect(1920,1080,3440,1440,1280,720);
+    if(ultrawide.x!=-330 || ultrawide.y || ultrawide.width!=2580 || ultrawide.height!=1080)return 4;
+    auto classic=xml1_presentation_rect(1920,1080,1600,1200,640,480);
+    if(classic.x!=240 || classic.y || classic.width!=1440 || classic.height!=1080)return 5;
     const long resolutions[][2]={{1920,1080},{1280,720},{640,480},{1600,1200},{1920,1200},{3440,1440},{5120,1440},{1080,1920},{1366,768}};
     const long work[][2]={{1920,1040},{1366,728},{3840,2080},{1024,728}};
     for(auto &r:resolutions)for(auto &a:work)for(long border:{8L,16L,32L})for(bool enlarge:{false,true}) {

@@ -31,6 +31,22 @@ static unsigned captured_mouse_buttons;
 static bool publish_display_events=false;
 static unsigned window_render_width=1280,window_render_height=720;
 static bool window_borderless=false;
+static void layout_presentation(HWND parent) {
+    RECT area={};GetClientRect(parent,&area);
+    if(area.right<=0 || area.bottom<=0)return;
+    pc_ui::client_width=area.right;pc_ui::client_height=area.bottom;
+    if(presentation_window) {
+        auto content=xml1_presentation_rect(area.right,area.bottom,window_render_width,window_render_height,pc_ui::aspect_width,pc_ui::aspect_height);
+        SetWindowPos(presentation_window,nullptr,content.x,content.y,content.width,content.height,
+            SWP_NOZORDER|SWP_NOACTIVATE);
+        RECT actual={};GetWindowRect(presentation_window,&actual);
+        MapWindowPoints(nullptr,parent,(POINT*)&actual,2);
+        std::printf("[PRESENTATION GEOMETRY] client=%ldx%ld render=%ux%u aspect=%ux%u child=%ld,%ld,%ld,%ld\n",
+            area.right,area.bottom,window_render_width,window_render_height,pc_ui::aspect_width,pc_ui::aspect_height,
+            actual.left,actual.top,actual.right,actual.bottom);
+        InvalidateRect(parent,nullptr,TRUE);
+    }
+}
 static Xml1WindowSize fitted_window(HWND window,const RECT &area,bool enlarge) {
     RECT frame={0,0,0,0};
     AdjustWindowRect(&frame,(DWORD)GetWindowLongPtrW(window,GWL_STYLE),FALSE);
@@ -43,10 +59,7 @@ static void publish_output_display(HWND window) {
 }
 static LRESULT CALLBACK playtest_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     if(message==WM_SIZE && wparam!=SIZE_MINIMIZED) {
-        RECT client={};GetClientRect(window,&client);
-        if(client.right>0 && client.bottom>0) {
-            pc_ui::client_width=client.right;pc_ui::client_height=client.bottom;
-        }
+        layout_presentation(window);
     }
     if(message==WM_GETMINMAXINFO && !window_borderless) {
         MONITORINFO monitor={};monitor.cbSize=sizeof(monitor);
@@ -185,6 +198,7 @@ int main(int argc, char** argv) {
     // A null class cursor leaves the previous cursor in place over the client
     // area, including Windows' busy cursor inherited during startup.
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wc.hbrBackground=(HBRUSH)GetStockObject(BLACK_BRUSH);
     wc.lpszClassName = L"OpenXML1DX8Probe";
     RegisterClassW(&wc);
     Xml1PcInputSnapshot initial_input={};
@@ -201,7 +215,7 @@ int main(int argc, char** argv) {
     const bool apply_window_layout=visible || std::getenv("XML1_TEST_WINDOW_LAYOUT");
     bool borderless=apply_window_layout && pc_connected && initial_input.settings.fullscreen;
     window_borderless=borderless;
-    const DWORD windowStyle = borderless?WS_POPUP:WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
+    const DWORD windowStyle = WS_CLIPCHILDREN | (borderless?WS_POPUP:WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
     unsigned render_width=liveMode&&!vblankMode?1280:640,render_height=liveMode&&!vblankMode?720:480;
     const char* resolution=vblankMode?nullptr:std::getenv("XML1_DX8_RESOLUTION");
     if(resolution) {
@@ -213,6 +227,8 @@ int main(int argc, char** argv) {
         render_width=width;render_height=height;
     }
     output_width=render_width;output_height=render_height;
+    const bool standard_aspect=(uint64_t)render_width*3==(uint64_t)render_height*4;
+    pc_ui::aspect_width=standard_aspect?640:1280;pc_ui::aspect_height=standard_aspect?480:720;
     window_render_width=render_width;window_render_height=render_height;
     pc_ui::client_width=render_width;pc_ui::client_height=render_height;
     RECT client = {0, 0, (LONG)render_width, (LONG)render_height};
@@ -250,6 +266,13 @@ int main(int argc, char** argv) {
                 maximum.width,maximum.height,render_width,render_height);
         }
     }
+    // A disabled child receives only presentation, leaving all input on the
+    // parent. Null Present rectangles remain legal with DISCARD and MSAA.
+    presentation_window=CreateWindowW(L"STATIC",L"",WS_CHILD|WS_VISIBLE|WS_DISABLED,
+        0,0,1,1,window,nullptr,wc.hInstance,nullptr);
+    if(!presentation_window){DestroyWindow(window);api->Release();FreeLibrary(library);return 2;}
+    source_layout_changed=[](){if(presentation_window)layout_presentation(GetParent(presentation_window));};
+    layout_presentation(window);
     if(pc_connected)publish_output_display(window);
     D3DPRESENT_PARAMETERS pp = {};
     D3DDISPLAYMODE mode = {};

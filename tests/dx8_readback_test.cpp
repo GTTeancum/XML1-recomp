@@ -48,6 +48,7 @@ int main() {
   auto api=create(D3D_SDK_VERSION);REQUIRE(api);
   WNDCLASSW wc={};wc.lpfnWndProc=DefWindowProcW;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"XML1-DX8-readback-test";RegisterClassW(&wc);
   HWND wnd=CreateWindowW(wc.lpszClassName,L"Hidden readback test",WS_POPUP,0,0,64,64,nullptr,nullptr,wc.hInstance,nullptr);REQUIRE(wnd);
+  HWND target=CreateWindowW(L"STATIC",L"",WS_CHILD|WS_DISABLED|WS_VISIBLE,0,8,64,48,wnd,nullptr,wc.hInstance,nullptr);REQUIRE(target);
   D3DDISPLAYMODE mode={};REQUIRE(SUCCEEDED(api->GetAdapterDisplayMode(0,&mode)));
   REQUIRE(mode.Format==D3DFMT_X8R8G8B8 || mode.Format==D3DFMT_A8R8G8B8);
   const unsigned counts[]={0,2,4,8};unsigned tested=0;
@@ -94,6 +95,9 @@ int main() {
      REQUIRE(SUCCEEDED(surface->UnlockRect()));surface->Release();QueryPerformanceCounter(&b);elapsed[full]+=1000.0*(b.QuadPart-a.QuadPart)/freq.QuadPart;
     }
    }
+   // The actual presentation target may have a different size than the render
+   // allocation. Null rectangles + child override must also work with FSAA.
+   REQUIRE(SUCCEEDED(dev->Present(nullptr,nullptr,target,nullptr)));
    if(path==1)REQUIRE(shim.pixel_calls==1 && shim.full_calls==66);
    if(path>=2)REQUIRE(shim.pixel_calls==0 && shim.full_calls==0);
    printf("PASS requested_samples=%u path=%u frames=32 resolved_edge_pixels=%u pixel_calls=%u full_calls=%u\n",n,path,gray,shim.pixel_calls,shim.full_calls);++tested;

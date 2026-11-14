@@ -69,16 +69,19 @@ static uint64_t texture_requests,texture_hits,completion_waits;
 static uint64_t texture_creates,texture_reuses;
 static bool quiet_replay;
 static unsigned output_width=640,output_height=480,source_width=640,source_height=480;
+static HWND presentation_window=nullptr;
+static void (*source_layout_changed)()=nullptr;
 static DWORD scale_coordinate(DWORD value,unsigned output,unsigned source) {
     return (DWORD)(((uint64_t)value*output+source/2)/source);
 }
 static D3DVIEWPORT8 output_viewport(D3DVIEWPORT8 input) {
     if((uint64_t)input.X+input.Width>source_width || (uint64_t)input.Y+input.Height>source_height)
         throw std::runtime_error("Guest viewport exceeds source dimensions");
-    DWORD right=scale_coordinate(input.X+input.Width,output_width,source_width);
-    DWORD bottom=scale_coordinate(input.Y+input.Height,output_height,source_height);
-    input.X=scale_coordinate(input.X,output_width,source_width);
-    input.Y=scale_coordinate(input.Y,output_height,source_height);
+    const auto content=xml1_fit_content(output_width,output_height,xml1_guest_display_width(source_width,source_height),source_height);
+    DWORD right=content.x+scale_coordinate(input.X+input.Width,content.width,source_width);
+    DWORD bottom=content.y+scale_coordinate(input.Y+input.Height,content.height,source_height);
+    input.X=content.x+scale_coordinate(input.X,content.width,source_width);
+    input.Y=content.y+scale_coordinate(input.Y,content.height,source_height);
     input.Width=right-input.X;input.Height=bottom-input.Y;return input;
 }
 struct WireTextureEntry { unsigned width,height; uint32_t packed; IDirect3DTexture8* texture; };
@@ -302,6 +305,10 @@ static bool replay_stream(IDirect3DDevice8* device, FILE* file, const char* capt
         if(!dimensions[0]||!dimensions[1]||dimensions[0]>4096||dimensions[1]>4096)
             throw std::runtime_error("Invalid source dimensions");
         source_width=dimensions[0];source_height=dimensions[1];
+        unsigned aspect=xml1_guest_display_width(source_width,source_height);
+        bool changed=pc_ui::aspect_width!=aspect || pc_ui::aspect_height!=source_height;
+        pc_ui::aspect_width=aspect;pc_ui::aspect_height=source_height;
+        if(changed && source_layout_changed)source_layout_changed();
         if(reset_envelope) {
             uint32_t reset;read(&reset,4);
             if(reset>1 || (reset && frame_open)) throw std::runtime_error("Invalid texture dictionary reset");
@@ -322,14 +329,19 @@ static bool replay_stream(IDirect3DDevice8* device, FILE* file, const char* capt
         for(auto& rect:rects) {
             if(rect.x1<0||rect.y1<0||rect.x2<rect.x1||rect.y2<rect.y1||rect.x2>(LONG)source_width||rect.y2>(LONG)source_height)
                 throw std::runtime_error("Invalid guest clear rectangle");
-            rect.x1=scale_coordinate(rect.x1,output_width,source_width);rect.x2=scale_coordinate(rect.x2,output_width,source_width);
-            rect.y1=scale_coordinate(rect.y1,output_height,source_height);rect.y2=scale_coordinate(rect.y2,output_height,source_height);
+            D3DVIEWPORT8 area={(DWORD)rect.x1,(DWORD)rect.y1,(DWORD)(rect.x2-rect.x1),(DWORD)(rect.y2-rect.y1),0,1};
+            area=output_viewport(area);
+            rect={(LONG)area.X,(LONG)area.Y,(LONG)(area.X+area.Width),(LONG)(area.Y+area.Height)};
         }
-        if(!frame_open) checked(device->Clear(0,nullptr,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER|D3DCLEAR_STENCIL,0,1.0f,0));
+        if(!frame_open) { D3DVIEWPORT8 full={0,0,output_width,output_height,0,1};cached_viewport(device,&full);checked(device->Clear(0,nullptr,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER|D3DCLEAR_STENCIL,0,1.0f,0)); }
         frame_open=true;
         DWORD flags=((clear[0]&0xF0)?D3DCLEAR_TARGET:0)|((clear[0]&1)?D3DCLEAR_ZBUFFER:0)|((clear[0]&2)?D3DCLEAR_STENCIL:0);
         float depth; std::memcpy(&depth,&clear[2],4);
-        checked(device->Clear(clear[4],clear[4]?rects.data():nullptr,flags,clear[1],depth,clear[3]));
+        if(!clear[4]) {
+            auto content=xml1_fit_content(output_width,output_height,xml1_guest_display_width(source_width,source_height),source_height);
+            rects.push_back({content.x,content.y,content.x+content.width,content.y+content.height});
+        }
+        checked(device->Clear((DWORD)rects.size(),rects.data(),flags,clear[1],depth,clear[3]));
         // C4 retains its historical completion acknowledgement. C5 only
         // acknowledges ordered submission; an explicit F8 fence or R8 swap
         // still performs the GPU completion barrier before publishing a fence.
@@ -366,7 +378,7 @@ static bool replay_stream(IDirect3DDevice8* device, FILE* file, const char* capt
         return false;
     }
     if ((!live && !count && !frame_open) || count>10000) throw std::runtime_error("Invalid draw count");
-    if (!frame_open) checked(device->Clear(0,nullptr,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER|D3DCLEAR_STENCIL,0,1.0f,0));
+    if (!frame_open) { D3DVIEWPORT8 full={0,0,output_width,output_height,0,1};cached_viewport(device,&full);checked(device->Clear(0,nullptr,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER|D3DCLEAR_STENCIL,0,1.0f,0)); }
     frame_open=true;
     checked(device->BeginScene());
     for (uint32_t n=0;n<count;++n) {
@@ -476,7 +488,7 @@ static bool replay_stream(IDirect3DDevice8* device, FILE* file, const char* capt
     if(live)requested_native_capture(device);
     if (live) {
         double started=perf_now_ms();
-        checked(device->Present(nullptr,nullptr,nullptr,nullptr));
+        checked(device->Present(nullptr,nullptr,presentation_window,nullptr));
         perf_present_ms+=perf_now_ms()-started;
     }
     frame_open=false;completion_pending=false;
