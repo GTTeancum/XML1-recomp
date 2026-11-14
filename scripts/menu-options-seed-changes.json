@@ -211,6 +211,7 @@
         "enabled": "false"
       },
       "remove": [
+        "animate",
         "model"
       ]
     },
@@ -319,6 +320,7 @@
         "enabled": "false"
       },
       "remove": [
+        "animate",
         "model"
       ]
     },
@@ -332,6 +334,7 @@
         "enabled": "false"
       },
       "remove": [
+        "animate",
         "model"
       ]
     },

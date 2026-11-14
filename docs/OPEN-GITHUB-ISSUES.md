@@ -157,8 +157,43 @@ XBOXgame/logs/texture-gameplay/ and texture-gameplay-4x/.
 enemies, enemies outside map boundaries, looping Settings animations,
 brightness, gamma and custom shaders. Track all six separately; do not infer
 one root cause or claim gameplay fixes from rendering smoke tests.
-Remaining: reproduce/trace the three bugs and assess/implement the requested
-display controls within the mandatory DX8 backend.
+The Options animation symptom is reproduced and locally fixed. Captures show
+the title's rotating light and the unselected Accept decoration flashing;
+the main panel itself stays stationary. The authored Options definition kept
+`animate="true"` on title_light, accept_light and accept_focus. The guest parser
+at 00172F61 sets item flag 0x02 at offset 0x3A for that attribute; the update
+branch at 001730D9 uses it to advance the model continuously. It is separate
+from the menu's opening/closing animation. The Advanced Options authoring
+recipe already removes these same attributes.
+
+The normal Options seed now removes them too. For an existing authored menu,
+run from the repository root:
+
+```powershell
+.venv/Scripts/python.exe scripts/fix-options-idle-animation.py --menu XBOXgame/ui/menus/options.eng --driver XBOXgame/build/Release/xmlb-driver.exe
+```
+
+The helper validates the expected layout/items, preserves other content and
+compiles options.engb before publishing. This compiled copy matters: the game
+loads binary menus, so changing only options.eng does not update runtime UI.
+The decoded before/after binary trees differ only in the three animation
+attributes. Source transformation is idempotent. No resource names, IGBs,
+package declarations, focus bindings, sliders or transition definitions change.
+
+All three before/after native captures were inspected in sequence. In the
+post-fix title and Accept regions, both later captures match the first exactly;
+those regions changed in the original run. A further process-local navigation
+run opened Options from the main menu over the live Cerebro background and
+returned with Back. Both outputs were inspected. Direct-opening isolation
+runs intentionally lack the main-menu background and are not background
+validation. Evidence: XBOXgame/logs/issue30-options/,
+issue30-options-compiled/ and issue30-options-navigation/. Temporary launch
+fixtures were restored; the corrected Options text and compiled data remain
+in the single staged build. Audio was muted, and intermediate transition
+frames and acceptance of every setting were not revalidated.
+
+Remaining: investigate invisible enemies and out-of-map enemies, and implement
+or establish concrete blockers for brightness, gamma and custom shaders in DX8.
 
 ## Platform: #26
 
