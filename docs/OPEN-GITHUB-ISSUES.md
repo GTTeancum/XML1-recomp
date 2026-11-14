@@ -219,6 +219,30 @@ ready, and retain the independent direct-lock path for compatibility. Native
 menu integration, custom shaders, invisible enemies and out-of-map enemies
 remain pending.
 
+Color-path performance follow-up: native PS 1.1 dependent texture lookups now
+apply the same 8-bit table on the GPU. A render-target copy supplies the source;
+two small lookup textures map red and green/blue independently. There is no
+runtime shader compiler or extra DLL. The instruction behavior follows
+[Microsoft's texreg2ar documentation](https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/texreg2ar---ps)
+and the corresponding texreg2gb instruction. If shader/resource creation or
+the copy fails, the GPU path is disabled and the independent CPU path is used.
+Devices selected for direct-lock readback bypass GPU copying entirely.
+The CPU path also no longer needs an intermediate full-size image buffer.
+
+All 256 input values in every channel match the CPU table exactly through
+both the automatic (GPU here) and forced CPU paths. All 20 readback scenarios
+pass again, with the eight non-direct cases using the GPU and twelve direct
+cases using CPU conversion. The revised 24-frame warmed benchmark includes
+the game's required completion fence, not just asynchronous submission:
+1080p GPU cases take 1.059–2.731 ms (median 1.623); direct CPU cases take
+6.046–7.759 ms (median 6.464). These are isolated color-pass measurements on
+the development Radeon, not total gameplay frame times or other-GPU results.
+Neutral settings still bypass the pass. Native menu capture with nonneutral
+settings was inspected after updating the single staged executable; logo,
+text, background and prompt remain coherent. Embedded integrity passes.
+Evidence: issue30-color-synchronized.log, issue30-color-gpu-pixels.log and
+issue30-color-gpu-game/ under XBOXgame/logs. Native menu controls remain pending.
+
 ## Platform: #26
 
 [#26](https://github.com/GTTeancum/XML1-recomp/issues/26) requests Linux support.

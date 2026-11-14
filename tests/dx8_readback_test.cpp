@@ -114,6 +114,20 @@ int main() {
     QueryPerformanceCounter(&end_color);
     printf("COLOR PASS requested_samples=%u direct=%u 1080p ms_per_frame_including_validation=%.3f\n",n,path>=2,
         1000.0*(end_color.QuadPart-start_color.QuadPart)/freq.QuadPart/4);
+    double apply_ms=0;
+    for(unsigned frame=0;frame<24;++frame) {
+     checked(dev->Clear(0,nullptr,D3DCLEAR_TARGET,0xff808080,1,0));
+     QueryPerformanceCounter(&start_color);
+     color.apply(dev,color_readback,100,200);
+     // Match the game's required completion fence without the full validation
+     // image. Include queued GPU work, rather than timing submission alone.
+     IDirect3DSurface8 *completion=nullptr;checked(color_readback.surface(dev,true,&completion));
+     D3DLOCKED_RECT completion_lock={};checked(completion->LockRect(&completion_lock,nullptr,D3DLOCK_READONLY));
+     checked(completion->UnlockRect());completion->Release();
+     QueryPerformanceCounter(&end_color);
+     apply_ms+=1000.0*(end_color.QuadPart-start_color.QuadPart)/freq.QuadPart;
+    }
+    printf("COLOR STEADY requested_samples=%u direct=%u gpu=%u apply_and_completion_ms=%.3f\n",n,path>=2,color.used_gpu(),apply_ms/24);
    }
    REQUIRE(SUCCEEDED(dev->Present(nullptr,nullptr,target,nullptr)));
    if(path==1)REQUIRE(shim.pixel_calls==1 && shim.full_calls==66);

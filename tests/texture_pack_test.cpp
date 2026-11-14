@@ -218,6 +218,23 @@ int main() {
         D3DVIEWPORT8 full={0,0,640,480,0,1};checked(device->SetViewport(&full));
         checked(device->Clear(0,nullptr,D3DCLEAR_TARGET,0xff4080c0,1,0));
         color.apply(device,native_readback,150,100);REQUIRE(pixel(device,320,240)==0x60c0ff);
+        printf("DISPLAY COLOR native path=%s\n",color.used_gpu()?"GPU":"CPU");
+        for(bool allow_gpu:{true,false}) {
+            DisplayColor ramp(allow_gpu);
+            for(unsigned i=0;i<256;++i) {
+                D3DRECT stripe={(LONG)i*2,0,(LONG)i*2+2,480};
+                checked(device->Clear(1,&stripe,D3DCLEAR_TARGET,0xff000000|(i<<16)|((255-i)<<8)|((i*73)&255),1,0));
+            }
+            ramp.apply(device,native_readback,110,140);DisplayColor::table(110,140,lut);
+            IDirect3DSurface8 *surface=nullptr;checked(native_readback.surface(device,false,&surface));
+            D3DLOCKED_RECT lock={};checked(surface->LockRect(&lock,nullptr,D3DLOCK_READONLY));
+            for(unsigned i=0;i<256;++i) {
+                DWORD expected=((DWORD)lut[i]<<16)|((DWORD)lut[255-i]<<8)|lut[(i*73)&255];
+                REQUIRE((((DWORD*)lock.pBits)[i*2]&0xffffff)==expected);
+            }
+            checked(surface->UnlockRect());surface->Release();
+        }
+        puts("PASS all 256 input values per channel match the lookup table on automatic and forced CPU paths");
         puts("PASS game-local brightness/gamma pixels, neutral identity, edge coverage and state restoration");
     }
     clear_texture_cache();geometry_stream.clear();native_readback.clear();

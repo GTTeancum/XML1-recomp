@@ -46,6 +46,7 @@ template<class Device, class Surface> class BasicDx8Readback {
         return hr;
     }
 public:
+    bool direct() const { return direct_; }
     BasicDx8Readback() = default;
     BasicDx8Readback(const BasicDx8Readback&) = delete;
     BasicDx8Readback& operator=(const BasicDx8Readback&) = delete;
