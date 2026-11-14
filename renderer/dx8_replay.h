@@ -26,6 +26,9 @@ static void checked_result(HRESULT hr,const char* expression,const char* file,in
 #include "geometry_stream.h"
 #include "display_color.h"
 static DisplayColor display_color;
+#include "custom_shader.h"
+static CustomShader custom_shader;
+static DisplayColor custom_shader_frame;
 static Dx8Readback native_readback;
 static NativeVblank native_vblank;
 static GeometryStream geometry_stream;
@@ -489,6 +492,15 @@ static bool replay_stream(IDirect3DDevice8* device, FILE* file, const char* capt
         Xml1PcInputSnapshot color_settings={};
         if(xml1_pc_channel_read(&color_settings,1))
             display_color.apply(device,native_readback,color_settings.settings.brightness,color_settings.settings.gamma);
+        if(DWORD shader=custom_shader.load(device,std::getenv("XML1_DX8_CUSTOM_SHADER"))) {
+            auto content=xml1_fit_content(output_width,output_height,xml1_guest_display_width(source_width,source_height),source_height);
+            const RECT area={content.x,content.y,content.x+content.width,content.y+content.height};
+            try {custom_shader_frame.apply(device,native_readback,100,100,shader,&area);}
+            catch(const std::exception &error) {
+                std::fprintf(stderr,"[CUSTOM SHADER] Effect disabled: %s\n",error.what());
+                custom_shader.disable();custom_shader_frame.clear();
+            }
+        }
     }
     if (capture) capture_backbuffer(device,capture);
     else complete_rendering(device);

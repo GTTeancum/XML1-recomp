@@ -280,6 +280,39 @@ Evidence: XBOXgame/logs/issue30-color-ui-reused/ and
 issue30-color-ui-controls.log. Audio was muted; this does not verify audio
 or every animation frame. Custom shaders and the enemy reports remain open.
 
+Custom-shader backend follow-up for #30: `CustomShader` in build.ini now
+accepts a native DX8 pixel shader assembly file. The optional final pass runs
+after brightness/gamma and before capture/presentation, restricted to the
+game picture so aspect margins stay black. It uses GPU image copying where
+available and independent CPU upload for direct-lock/fallback devices.
+Malformed/unsupported shader files disable only the effect. Rendering remains
+native DX8; the Windows system assembler compiles the source. Tracked grayscale
+and invert examples and docs/CUSTOM-SHADERS.md explain the supported contract.
+An in-menu selector is still pending, so the full display-settings request is
+not finished.
+
+All 20 native readback/MSAA cases pass exact invert pixel checks, edge coverage,
+margin preservation, shader-state restoration and malformed-source rejection.
+Build-setting tests cover default off, paths with spaces, explicit off and
+oversize paths. The staged executable passes embedded integrity checks. Two
+native grayscale captures (Options and main menu) were inspected: artwork,
+ordinary text, selection, background and prompt remain coherent in grayscale.
+The bounded run ended at its watchdog and restored build.ini, PC settings and
+intro. Evidence: XBOXgame/logs/issue30-custom-shader-test.log and
+issue30-custom-grayscale/. Audio was muted; arbitrary shader and GPU
+compatibility/performance are not established.
+
+Enemy reports remain unverified. The user has no reproduction details either.
+The inspected visibility path at guest 2E220 changes opacity through 76B40 and
+the actor's hidden flag; 2E280 queries the original invisibility powerup.
+The added restore-visible interrupt handler preserves an active effect and
+otherwise calls that existing path. The imported teleporter event is gated by
+its configured owner and delegates candidate placement to original spatial
+validation at D56B0; it does not directly write an actor position. These checks
+do not establish either reported root cause. No blanket visibility or position
+override has been introduced. A location/save/reproduction or stronger runtime
+evidence is still needed to connect either symptom to a failing path.
+
 ## Platform: #26
 
 [#26](https://github.com/GTTeancum/XML1-recomp/issues/26) requests Linux support.

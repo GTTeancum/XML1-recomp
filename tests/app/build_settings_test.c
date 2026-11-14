@@ -28,6 +28,13 @@ int main(void) {
     }
     CHECK(DeleteFileA(path));CHECK(xml1_read_build_settings(path,&s,error,sizeof(error)));CHECK(s.prefer_files_loose);CHECK(!strcmp(s.text_language,"eng"));CHECK(!s.modder_mode);CHECK(!s.danger_room_unlock_all);CHECK(s.performance_logging);
     CHECK(s.graphics_adapter==-1);
+    CHECK(!*s.custom_shader);
+    put(path,"[BUILD]\nCustomShader = shaders/my effect.ps\n");
+    CHECK(xml1_read_build_settings(path,&s,error,sizeof(error)));CHECK(!strcmp(s.custom_shader,"shaders/my effect.ps"));
+    put(path,"[BUILD]\nCustomShader =\n");CHECK(xml1_read_build_settings(path,&s,error,sizeof(error)));CHECK(!*s.custom_shader);
+    char oversized[300];memset(oversized,'a',sizeof(oversized));oversized[sizeof(oversized)-1]=0;
+    char shader_ini[350];snprintf(shader_ini,sizeof(shader_ini),"[BUILD]\nCustomShader=%s\n",oversized);put(path,shader_ini);
+    CHECK(!xml1_read_build_settings(path,&s,error,sizeof(error)));
     put(path,"[BUILD]\ngraphicsAdapter=1\n");CHECK(xml1_read_build_settings(path,&s,error,sizeof(error)));CHECK(s.graphics_adapter==1);
     put(path,"[BUILD]\ngraphicsAdapter=auto\n");CHECK(xml1_read_build_settings(path,&s,error,sizeof(error)));CHECK(s.graphics_adapter==-1);
     put(path,"[BUILD]\ngraphicsAdapter=-2\n");CHECK(!xml1_read_build_settings(path,&s,error,sizeof(error)));

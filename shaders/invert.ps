@@ -1,0 +1,5 @@
+ps.1.1
+; Native DX8 example. Preserve alpha while inverting RGB.
+tex t0
+mov r0.rgb, 1-t0
+mov r0.a, t0.a

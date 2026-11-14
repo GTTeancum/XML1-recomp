@@ -8,6 +8,7 @@ typedef BOOL WINBOOL;
 #define REQUIRE(x) do {if(!(x))throw std::runtime_error(#x);}while(0)
 #define checked(x) REQUIRE(SUCCEEDED(x))
 #include "../renderer/display_color.h"
+#include "../renderer/custom_shader.h"
 struct Vertex {float x,y,z,w;DWORD color;};
 // Keep real surfaces/draws/readback pixels; inject only the driver's rejection.
 struct TestSurface {
@@ -128,6 +129,32 @@ int main() {
      apply_ms+=1000.0*(end_color.QuadPart-start_color.QuadPart)/freq.QuadPart;
     }
     printf("COLOR STEADY requested_samples=%u direct=%u gpu=%u apply_and_completion_ms=%.3f\n",n,path>=2,color.used_gpu(),apply_ms/24);
+    {
+     FILE *shader_file=std::fopen("tmp/custom-shader-test.ps","wb");REQUIRE(shader_file);
+     std::fputs("ps.1.1\ntex t0\nmov r0, 1-t0\n",shader_file);std::fclose(shader_file);
+     CustomShader effect;DWORD shader=effect.load(dev,"tmp/custom-shader-test.ps");REQUIRE(shader);
+     DWORD original_shader=0;checked(dev->GetPixelShader(&original_shader));
+     checked(dev->Clear(0,nullptr,D3DCLEAR_TARGET,0xff804020,1,0));
+     color.apply(dev,color_readback,100,100,shader);
+     DWORD restored_shader=0;checked(dev->GetPixelShader(&restored_shader));REQUIRE(restored_shader==original_shader);
+     IDirect3DSurface8 *result=nullptr;checked(color_readback.surface(dev,false,&result));
+     D3DLOCKED_RECT pixels={};checked(result->LockRect(&pixels,nullptr,D3DLOCK_READONLY));
+     REQUIRE((*(DWORD*)pixels.pBits&0xffffff)==0x7fbfdf);
+     REQUIRE((*(DWORD*)((char*)pixels.pBits+1079*pixels.Pitch+1919*4)&0xffffff)==0x7fbfdf);
+     checked(result->UnlockRect());result->Release();
+     checked(dev->Clear(0,nullptr,D3DCLEAR_TARGET,0xff000000,1,0));
+     const RECT area={10,20,1910,1060};color.apply(dev,color_readback,100,100,shader,&area);
+     checked(color_readback.surface(dev,false,&result));checked(result->LockRect(&pixels,nullptr,D3DLOCK_READONLY));
+     REQUIRE((*(DWORD*)pixels.pBits&0xffffff)==0);
+     REQUIRE((*(DWORD*)((char*)pixels.pBits+20*pixels.Pitch+10*4)&0xffffff)==0xffffff);
+     REQUIRE((*(DWORD*)((char*)pixels.pBits+1060*pixels.Pitch+1910*4)&0xffffff)==0);
+     checked(result->UnlockRect());result->Release();
+     effect.disable();REQUIRE(!effect.load(dev,"tmp/custom-shader-test.ps"));
+     shader_file=std::fopen("tmp/custom-shader-test.ps","wb");REQUIRE(shader_file);
+     std::fputs("ps.1.1\nnot_an_instruction r0\n",shader_file);std::fclose(shader_file);
+     CustomShader invalid;REQUIRE(!invalid.load(dev,"tmp/custom-shader-test.ps"));
+     printf("CUSTOM SHADER PASS samples=%u direct=%u exact_pixels_and_state_restoration\n",n,path>=2);
+    }
    }
    REQUIRE(SUCCEEDED(dev->Present(nullptr,nullptr,target,nullptr)));
    if(path==1)REQUIRE(shim.pixel_calls==1 && shim.full_calls==66);

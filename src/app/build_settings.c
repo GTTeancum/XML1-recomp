@@ -78,6 +78,10 @@ int xml1_read_build_settings(const char *path,Xml1BuildSettings *out,char *error
             if(!*value || strlen(value)>=sizeof(settings.hd_texture_pack)) {ok=fail(error,size,"HDTexturePack must be a folder path shorter than 260 characters");break;}
             strcpy(settings.hd_texture_pack,value);
         }
+        if(equal(s,"CustomShader")) {
+            if(strlen(value)>=sizeof(settings.custom_shader)) {ok=fail(error,size,"CustomShader path must be shorter than 260 characters");break;}
+            strcpy(settings.custom_shader,value);
+        }
         if(equal(s,"modderMode")) {
             if(equal(value,"1")||equal(value,"true")) settings.modder_mode=1;
             else if(equal(value,"0")||equal(value,"false")) settings.modder_mode=0;

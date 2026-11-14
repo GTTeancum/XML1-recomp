@@ -33,9 +33,9 @@ public:
         for(unsigned i=0;i<256;++i)
             lut[i]=(unsigned char)std::min(255.0,std::floor(255.0*(brightness/100.0)*std::pow(i/255.0,100.0/gamma)+0.5));
     }
-    template<class Readback> void apply(IDirect3DDevice8 *device,Readback &readback,unsigned brightness,unsigned gamma) {
+    template<class Readback> void apply(IDirect3DDevice8 *device,Readback &readback,unsigned brightness,unsigned gamma,DWORD custom_shader=0,const RECT *region=nullptr) {
         used_gpu_=false;
-        if(brightness==100 && gamma==100)return;
+        if(brightness==100 && gamma==100 && !custom_shader)return;
         if(brightness!=brightness_ || gamma!=gamma_) {
             unsigned char lut[256];table(brightness,gamma,lut);
             for(unsigned i=0;i<256;++i) {
@@ -91,14 +91,15 @@ public:
         bool scene=false;
         try {
             D3DVIEWPORT8 viewport={0,0,desc.Width,desc.Height,0,1};checked(device->SetViewport(&viewport));
-            checked(device->SetVertexShader(D3DFVF_XYZRHW|D3DFVF_TEX1));checked(device->SetPixelShader(gpu?gpu_.shader():0));
+            checked(device->SetVertexShader(D3DFVF_XYZRHW|D3DFVF_TEX1));checked(device->SetPixelShader(custom_shader?custom_shader:(gpu?gpu_.shader():0)));
             for(auto state:{D3DRS_ZENABLE,D3DRS_ZWRITEENABLE,D3DRS_ALPHABLENDENABLE,D3DRS_ALPHATESTENABLE,
                             D3DRS_STENCILENABLE,D3DRS_FOGENABLE,D3DRS_LIGHTING})checked(device->SetRenderState(state,FALSE));
             checked(device->SetRenderState(D3DRS_CULLMODE,D3DCULL_NONE));
             checked(device->SetRenderState(D3DRS_FILLMODE,D3DFILL_SOLID));
             checked(device->SetRenderState(D3DRS_COLORWRITEENABLE,15));
             checked(device->SetTexture(0,image));
-            if(gpu)for(unsigned stage=1;stage<=2;++stage) {
+            if(custom_shader)for(unsigned stage=1;stage<8;++stage)checked(device->SetTexture(stage,nullptr));
+            if(gpu && !custom_shader)for(unsigned stage=1;stage<=2;++stage) {
                 checked(device->SetTexture(stage,stage==1?gpu_.red():gpu_.gb()));
                 checked(device->SetTextureStageState(stage,D3DTSS_MINFILTER,D3DTEXF_POINT));
                 checked(device->SetTextureStageState(stage,D3DTSS_MAGFILTER,D3DTEXF_POINT));
@@ -119,10 +120,12 @@ public:
             checked(device->SetTextureStageState(0,D3DTSS_ADDRESSU,D3DTADDRESS_CLAMP));
             checked(device->SetTextureStageState(0,D3DTSS_ADDRESSV,D3DTADDRESS_CLAMP));
             checked(device->SetTextureStageState(1,D3DTSS_COLOROP,D3DTOP_DISABLE));
-            const float right=(float)desc.Width-.5f,bottom=(float)desc.Height-.5f;
-            const float u=(float)desc.Width/(gpu?gpu_.width():tw_),v=(float)desc.Height/(gpu?gpu_.height():th_);
+            const RECT area=region?*region:RECT{0,0,(LONG)desc.Width,(LONG)desc.Height};
+            const float left=area.left-.5f,top=area.top-.5f,right=area.right-.5f,bottom=area.bottom-.5f;
+            const float width=(float)(gpu?gpu_.width():tw_),height=(float)(gpu?gpu_.height():th_);
+            const float u0=area.left/width,v0=area.top/height,u=area.right/width,v=area.bottom/height;
             struct Vertex {float x,y,z,rhw,u,v;};
-            Vertex quad[]={{-.5f,-.5f,0,1,0,0},{right,-.5f,0,1,u,0},{-.5f,bottom,0,1,0,v},{right,bottom,0,1,u,v}};
+            Vertex quad[]={{left,top,0,1,u0,v0},{right,top,0,1,u,v0},{left,bottom,0,1,u0,v},{right,bottom,0,1,u,v}};
             checked(device->BeginScene());scene=true;
             checked(device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP,2,quad,sizeof(Vertex)));
             checked(device->EndScene());scene=false;

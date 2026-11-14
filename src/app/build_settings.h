@@ -9,6 +9,7 @@ typedef struct Xml1BuildSettings {
     int danger_room_unlock_all; /* Main-menu Danger Room: every mode, character and arena. */
     int hd_textures; /* Load PNG replacements from hd_texture_pack when it exists. */
     char hd_texture_pack[260]; /* Relative paths resolve against the game data directory. */
+    char custom_shader[260]; /* Optional native DX8 pixel shader assembly file. */
 } Xml1BuildSettings;
 extern Xml1BuildSettings xml1_build_settings;
 /* Missing file uses defaults. Invalid values fail with a useful error. */

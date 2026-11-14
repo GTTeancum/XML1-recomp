@@ -499,6 +499,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         { char adapter[16];snprintf(adapter,sizeof(adapter),"%d",xml1_build_settings.graphics_adapter);
           _putenv_s("XML1_DX8_ADAPTER",adapter); }
         xml1_performance_start(xml1_build_settings.performance_logging);
+        _putenv_s("XML1_DX8_CUSTOM_SHADER","");
+        if(*xml1_build_settings.custom_shader) {
+            const char *shader=xml1_build_settings.custom_shader;
+            char joined[MAX_PATH*2],full[MAX_PATH];
+            int absolute=shader[0]=='\\' || shader[0]=='/' || (shader[0] && shader[1]==':');
+            snprintf(joined,sizeof(joined),"%s%s%s",absolute?"":(test_game_dir?test_game_dir:YOUR_GAME_DIR),absolute?"":"/",shader);
+            DWORD length=GetFullPathNameA(joined,sizeof(full),full,NULL);
+            if(length && length<sizeof(full))_putenv_s("XML1_DX8_CUSTOM_SHADER",full);
+            else fprintf(stderr,"[CUSTOM SHADER] Path too long; effect disabled\n");
+        }
         if(xml1_build_settings.hd_textures) {
             /* The renderer receives an absolute folder; a missing pack is not an error. */
             const char *pack=xml1_build_settings.hd_texture_pack;

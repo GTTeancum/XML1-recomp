@@ -1,0 +1,6 @@
+ps.1.1
+; Native DX8 example. t0 is the rendered game image.
+def c0, 0.299, 0.587, 0.114, 0
+tex t0
+dp3 r0.rgb, t0, c0
+mov r0.a, t0.a
