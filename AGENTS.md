@@ -30,3 +30,11 @@
 - XML2 import scope clarification (2026-09-19): new functionality ONLY. If a combat, character or script function/system already exists in XML1, skip it without comparing XML2 semantics, signatures, rounding, balance or implementation. Do not extend this goal into parity fixes. Inspect existing XML1 integration interfaces only as needed to connect an actually missing function.
 
 - 2026-09-20 handler crash-testing goal: the user now explicitly authorizes in-game testing of all 15 newly imported handlers, including activation, interruption/reuse, target lifecycle and cleanup. This supersedes the earlier programmatic-only validation limit for this bounded goal. Use isolated test assets/saves and process-local input; do not operate the desktop. Full balance validation remains out of scope.
+
+## User workspace and testing policy (2026-11-13)
+
+- All project work stays in C:\Programming\GitHub\XML1recomp, including temporary files, caches, logs and build artifacts. Do not create external workspaces.
+- Keep the user's original Xbox ISO untouched and ignored by Git (`*.iso`). Never commit or upload game assets.
+- `!TEST_BUILD/` is the sole location for all testing and the ONE test build. Reuse and update that build in place; do not create parallel, numbered, backup or alternative test builds.
+- This user instruction supersedes the older `XBOXgame` player-staging location above. Keep the playable test executable, configuration and game data together within `!TEST_BUILD/`; keep test logs, captures and temporary test artifacts inside that same ignored tree.
+- `.local/` is reserved for non-test investigation/support files; it must not contain a second test build.
