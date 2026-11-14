@@ -6,6 +6,8 @@ typedef BOOL WINBOOL;
 #include <cstdio>
 #include <stdexcept>
 #define REQUIRE(x) do {if(!(x))throw std::runtime_error(#x);}while(0)
+#define checked(x) REQUIRE(SUCCEEDED(x))
+#include "../renderer/display_color.h"
 struct Vertex {float x,y,z,w;DWORD color;};
 // Keep real surfaces/draws/readback pixels; inject only the driver's rejection.
 struct TestSurface {
@@ -97,6 +99,22 @@ int main() {
    }
    // The actual presentation target may have a different size than the render
    // allocation. Null rectangles + child override must also work with FSAA.
+   {
+    Dx8Readback color_readback;checked(color_readback.initialize(dev,path>=2));
+    DisplayColor color;
+    LARGE_INTEGER start_color,end_color;QueryPerformanceCounter(&start_color);
+    for(unsigned frame=0;frame<4;++frame) {
+     checked(dev->Clear(0,nullptr,D3DCLEAR_TARGET,0xff808080,1,0));
+     color.apply(dev,color_readback,100,200);
+     IDirect3DSurface8 *surface=nullptr;checked(color_readback.surface(dev,false,&surface));
+     D3DLOCKED_RECT lock={};checked(surface->LockRect(&lock,nullptr,D3DLOCK_READONLY));
+     REQUIRE((*(DWORD*)((char*)lock.pBits+1079*lock.Pitch+1919*4)&0xffffff)==0xb5b5b5);
+     checked(surface->UnlockRect());surface->Release();
+    }
+    QueryPerformanceCounter(&end_color);
+    printf("COLOR PASS requested_samples=%u direct=%u 1080p ms_per_frame_including_validation=%.3f\n",n,path>=2,
+        1000.0*(end_color.QuadPart-start_color.QuadPart)/freq.QuadPart/4);
+   }
    REQUIRE(SUCCEEDED(dev->Present(nullptr,nullptr,target,nullptr)));
    if(path==1)REQUIRE(shim.pixel_calls==1 && shim.full_calls==66);
    if(path>=2)REQUIRE(shim.pixel_calls==0 && shim.full_calls==0);

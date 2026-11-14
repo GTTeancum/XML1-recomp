@@ -5,7 +5,7 @@
 #include <cstring>
 
 namespace {
-constexpr uint32_t version=13;
+constexpr uint32_t version=14;
 constexpr unsigned pointer_capacity=16;
 struct Shared {
     uint32_t version, bytes;
@@ -17,9 +17,9 @@ struct Shared {
     uint32_t native_pointer, pointer_head, pointer_count, pointer_buttons;
     Xml1PcMenuPointer pointer_events[pointer_capacity];
 };
-static_assert(sizeof(Xml1PcSettings)==1896);
+static_assert(sizeof(Xml1PcSettings)==1904);
 static_assert(sizeof(Xml1PcControlState)==280);
-static_assert(sizeof(Shared)==2988);
+static_assert(sizeof(Shared)==2996);
 HANDLE mapping=nullptr, mutex=nullptr;
 Shared *shared=nullptr;
 struct Lock {

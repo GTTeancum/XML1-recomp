@@ -5,6 +5,7 @@ typedef BOOL WINBOOL;
 #include <cstdio>
 #include <cstring>
 #include "../renderer/dx8_replay.h"
+#include "../renderer/display_color.h"
 #define REQUIRE(x) do {if(!(x))throw std::runtime_error(#x);}while(0)
 // HD texture pack contract: keys agree with the pack builder, DXT encoding is
 // faithful, and a replaced texture renders through the live draw path.
@@ -202,6 +203,23 @@ int main() {
     chain_a->Release();chain_b->Release();chain_b_again->Release();
     puts("PASS cache distinguishes authored mip content and reuses identical chains");
 
+    {
+        DisplayColor color;
+        unsigned char lut[256];DisplayColor::table(100,100,lut);
+        for(unsigned i=0;i<256;++i)REQUIRE(lut[i]==i);
+        checked(device->Clear(0,nullptr,D3DCLEAR_TARGET,0xff4080c0,1,0));
+        color.apply(device,native_readback,100,100);REQUIRE(pixel(device,320,240)==0x4080c0);
+        D3DVIEWPORT8 before={11,13,100,80,0,1};checked(device->SetViewport(&before));
+        DWORD shader_before=0;checked(device->GetVertexShader(&shader_before));
+        color.apply(device,native_readback,100,200);
+        REQUIRE(pixel(device,0,0)==0x80b5dd && pixel(device,639,479)==0x80b5dd);
+        D3DVIEWPORT8 after={};checked(device->GetViewport(&after));REQUIRE(!std::memcmp(&before,&after,sizeof(before)));
+        DWORD shader_after=0;checked(device->GetVertexShader(&shader_after));REQUIRE(shader_before==shader_after);
+        D3DVIEWPORT8 full={0,0,640,480,0,1};checked(device->SetViewport(&full));
+        checked(device->Clear(0,nullptr,D3DCLEAR_TARGET,0xff4080c0,1,0));
+        color.apply(device,native_readback,150,100);REQUIRE(pixel(device,320,240)==0x60c0ff);
+        puts("PASS game-local brightness/gamma pixels, neutral identity, edge coverage and state restoration");
+    }
     clear_texture_cache();geometry_stream.clear();native_readback.clear();
     device->Release();api->Release();DestroyWindow(window);FreeLibrary(lib);
     return 0;

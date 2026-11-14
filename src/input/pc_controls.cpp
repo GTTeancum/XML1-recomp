@@ -23,6 +23,7 @@ extern "C" void xml1_pc_settings_defaults(Xml1PcSettings *s) {
     s->width=1920; s->height=1080; s->keyboard_enabled=1;
     s->mouse_sensitivity=100;
     s->view_shake=1;
+    s->brightness=100;s->gamma=100;
     const uint32_t keys[]={'W','S','A','D',VK_NUMPAD4,VK_NUMPAD6,VK_SPACE,'E',
         VK_NUMPAD5,'P','O','C',VK_UP,VK_DOWN,VK_LEFT,VK_RIGHT,'M',VK_ESCAPE,VK_F1,
         'I','K','J','L',VK_SHIFT,'1','2','3','4','V'};
@@ -109,6 +110,8 @@ extern "C" int xml1_pc_settings_validate(const Xml1PcSettings *s,char *error,uns
     if(s->fsaa!=0 && s->fsaa!=2 && s->fsaa!=4 && s->fsaa!=8)
         return fail(error,capacity,"FSAA must be Off, 2x, 4x or 8x");
     if(s->mouse_sensitivity<10 || s->mouse_sensitivity>300) return fail(error,capacity,"Mouse sensitivity must be 10 through 300");
+    if(s->brightness<50 || s->brightness>150 || s->gamma<50 || s->gamma>200)
+        return fail(error,capacity,"Brightness must be 50..150 and gamma 50..200");
     for(unsigned player=0;player<4;++player) for(unsigned i=0;i<XML1_PC_ACTION_COUNT;++i) {
         const unsigned a=s->pad_bindings[player][i],b=s->alternate_pad_bindings[player][i];
         if(a>=XML1_PAD_SOURCE_COUNT || b>=XML1_PAD_SOURCE_COUNT)
@@ -133,7 +136,8 @@ static const Field fields[]={
     {"KeyboardEnabled",&Xml1PcSettings::keyboard_enabled},{"KeyboardPlayer",&Xml1PcSettings::keyboard_player},
     {"SeparateControllers",&Xml1PcSettings::separate_controllers},
     {"MouseSensitivity",&Xml1PcSettings::mouse_sensitivity},{"InvertCameraY",&Xml1PcSettings::invert_camera_y},
-    {"ViewShake",&Xml1PcSettings::view_shake}
+    {"ViewShake",&Xml1PcSettings::view_shake},
+    {"Brightness",&Xml1PcSettings::brightness},{"Gamma",&Xml1PcSettings::gamma}
 };
 static std::string trim(std::string s) {
     auto a=s.find_first_not_of(" \t\r\n"), b=s.find_last_not_of(" \t\r\n");

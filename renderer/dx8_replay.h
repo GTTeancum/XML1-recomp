@@ -24,6 +24,8 @@ static void checked_result(HRESULT hr,const char* expression,const char* file,in
 #include "dx8_readback.h"
 #include "native_vblank.h"
 #include "geometry_stream.h"
+#include "display_color.h"
+static DisplayColor display_color;
 static Dx8Readback native_readback;
 static NativeVblank native_vblank;
 static GeometryStream geometry_stream;
@@ -483,6 +485,11 @@ static bool replay_stream(IDirect3DDevice8* device, FILE* file, const char* capt
     checked(device->EndScene());
     if(ordered) {completion_pending=true;return false;}
     if (flush) { complete_rendering(device); completion_pending=false; return false; }
+    if(live) {
+        Xml1PcInputSnapshot color_settings={};
+        if(xml1_pc_channel_read(&color_settings,1))
+            display_color.apply(device,native_readback,color_settings.settings.brightness,color_settings.settings.gamma);
+    }
     if (capture) capture_backbuffer(device,capture);
     else complete_rendering(device);
     if(live)requested_native_capture(device);

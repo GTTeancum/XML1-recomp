@@ -460,6 +460,7 @@ int main(int argc, char** argv) {
     clear_texture_cache();
     geometry_stream.clear();
     native_vblank.clear();
+    display_color.clear();
     native_readback.clear();
     xml1_pc_channel_close();
     if (device) device->Release();

@@ -42,6 +42,18 @@ int main(int argc,char **argv) {
         char error[160];REQUIRE(xml1_pc_settings_validate(&defaults,error,sizeof(error)));
         REQUIRE(defaults.width==1920 && defaults.height==1080);
         REQUIRE(defaults.view_shake==1);
+        REQUIRE(defaults.brightness==100 && defaults.gamma==100);
+        {
+            auto color=defaults;color.brightness=125;color.gamma=175;
+            REQUIRE(xml1_pc_settings_save("color-settings-test.ini",&color,error,sizeof(error)));
+            Xml1PcSettings loaded={};
+            REQUIRE(xml1_pc_settings_load("color-settings-test.ini",&loaded,error,sizeof(error)));
+            REQUIRE(loaded.brightness==125 && loaded.gamma==175);
+            std::remove("color-settings-test.ini");
+            color.brightness=151;REQUIRE(!xml1_pc_settings_validate(&color,error,sizeof(error)));
+            color.brightness=50;color.gamma=49;REQUIRE(!xml1_pc_settings_validate(&color,error,sizeof(error)));
+            color.gamma=200;REQUIRE(xml1_pc_settings_validate(&color,error,sizeof(error)));
+        }
         { auto invalid=defaults;invalid.view_shake=2;
           REQUIRE(!xml1_pc_settings_validate(&invalid,error,sizeof(error))); }
         REQUIRE(defaults.keys[0][XML1_PC_FORWARD]=='W');

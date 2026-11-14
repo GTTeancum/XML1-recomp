@@ -192,8 +192,32 @@ fixtures were restored; the corrected Options text and compiled data remain
 in the single staged build. Audio was muted, and intermediate transition
 frames and acceptance of every setting were not revalidated.
 
-Remaining: investigate invisible enemies and out-of-map enemies, and implement
-or establish concrete blockers for brightness, gamma and custom shaders in DX8.
+Brightness/gamma rendering is implemented as an intermediate step. The `[PC]`
+settings now accept Brightness=50..150 and Gamma=50..200, both neutral at 100.
+The transform is round(255 * brightness/100 * pow(channel/255, 100/gamma)),
+clamped to 255. It applies to the game image before native capture/Present;
+it never changes a monitor ramp. Neutral values bypass processing. Settings
+round-trip, validation and x64-to-Win32 input-channel tests pass (IPC version
+14). The native menu controls have not yet been authored, so this is not a
+completed response to the requested in-menu display controls.
+
+The initial renderer uses the validated native readback path, a CPU lookup
+table and a native DX8 texture/quad, restoring graphics state afterward.
+Native tests cover exact color values, neutral identity, edge coverage and
+state restoration. All 20 readback/MSAA/fallback scenarios also pass color
+pixel checks. A staged 720p run at Brightness=110/Gamma=140 shows the expected
+brightened logo, text, menu background and button prompt. Its configuration
+and intro fixture were restored; the single executable has the new renderer
+embedded and passes integrity checks. Logs: XBOXgame/logs/issue30-color-*,
+including the game capture in issue30-color-game/.
+
+Performance is unfinished: the 1080p test's four-frame averages include
+initial resource setup and a separate full validation readback, and measure
+roughly 12–23 ms in the initial scenarios. This is not a steady-state gameplay
+performance result. Optimize/measure the nonneutral path before claiming it
+ready, and retain the independent direct-lock path for compatibility. Native
+menu integration, custom shaders, invisible enemies and out-of-map enemies
+remain pending.
 
 ## Platform: #26
 
