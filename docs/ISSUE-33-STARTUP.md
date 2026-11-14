@@ -16,17 +16,23 @@ the issue to the separate concurrent-launch cache race.
 
 ## Change
 
-Keep the existing one-pixel completion path where it works. On INVALIDCALL
-from its allocation/copy, retry a full-size image surface and full backbuffer
-copy. Remember that successful fallback for subsequent completions; clear it
-with the cached surfaces. Capture and completion reuse the same full-size
-surface, but each request copies fresh pixels. The caller still locks/unlocks
-the returned surface before acknowledging GPU completion. Device loss and
-failed fallback remain errors, never successful fences.
+Before displaying the window or consuming guest commands, validate completion
+and full-size capture, including LockRect/UnlockRect. Select the one-pixel path
+where supported, otherwise validate a full-size image copy. There is no
+failure-triggered path selection while processing guest work.
 
-New diagnostics distinguish image allocation from partial/full CopyRects and
-include dimensions, format, multisampling and HRESULT. If Intel also rejects
-full-size readback, those diagnostics provide the next required evidence.
+If image readback initialization is rejected, automatically recreate the device
+with D3DPRESENTFLAG_LOCKABLE_BACKBUFFER and FSAA off. Validate direct backbuffer
+locking before accepting game work. This fallback uses neither image-surface
+allocation nor CopyRects, so it covers rejection of both copy sizes as well as
+image-surface lock rejection. Publish the effective FSAA-off setting and support
+mask to the running options UI without changing the saved configuration.
+No player relaunch, settings edit or log submission is needed to activate it.
+
+Completion still blocks on LockRect/UnlockRect; it never acknowledges an
+unsynchronized or stale frame. Reset invalidates the selected path. Device loss,
+allocation exhaustion and failures of the direct-lock device remain real errors;
+this does not promise recovery from arbitrary driver or hardware failure.
 
 Diagnostic game runs with XML1_TEST_GAME_DIR now pass a save/partition directory
 inside that test root rather than writing partition images into host AppData.
@@ -36,17 +42,19 @@ is unchanged.
 ## Validation
 
 On the local AMD Radeon 780M, the native DX8 readback test passed 32 changing
-frames each with FSAA off/2x/4x/8x, both normally and with injected INVALIDCALL
-for the one-pixel copy. Tests check actual pixel values and resolved edges,
-one-time fallback selection, reset/reprobe, failed full-copy propagation,
-device-loss propagation and a rejected 1x1 allocation. The ordered-submission
-pixel tests also passed (draw/clear order, completion and texture reuse).
+frames in each of 20 scenarios (requested FSAA off/2x/4x/8x, each with normal
+readback, rejected pixel copy, both copies rejected, capture-only rejection,
+and image LockRect rejection). Direct-lock scenarios recreate a non-MSAA device
+and assert zero copy calls while checking fresh completion/capture pixels.
+Tests also check resolved edges, reset invalidation, device-loss propagation,
+failed initialization and rejected 1x1 allocation. Ordered-submission and
+texture-replacement pixel tests passed.
 
 The optimized Release build and embedded-renderer integrity/import checks
 passed. The import checker now recognizes windowscodecs.dll, an existing
 Windows system dependency of the renderer.
 
-The single candidate completed first-run asset preparation and rendered the
+The earlier candidate completed first-run asset preparation and rendered the
 Raven intro and a story cinematic with subtitles. A subsequent launch with
 the same prepared assets also rendered a cinematic without a readback error.
 Three native captures were inspected across these runs. They establish intro
@@ -55,11 +63,18 @@ was muted and is unverified. The first run ended at the external 175-second
 watchdog (including asset preparation); the second was deliberately stopped
 after capture. Neither termination was a readback crash.
 
-Candidate executable SHA256:
-`230a1224679a80a4045500b1334b5765e35d6afefa50fc4d9f52f56c30ee9ae8`.
+Current candidate executable SHA256:
+`5634f50f9de5b6c3a1272d03f41d95b930c2888592ff688b0db2f644fbd20478`.
 
-The fallback can cost more bandwidth and time because it reads the full frame;
-the one-pixel path remains unchanged on supporting devices. Tests do not
+The current candidate passed startup completion/capture validation on AMD,
+then rendered the Raven intro (native capture inspected). That bounded run
+was deliberately stopped after capture. Direct compatibility mode is covered
+by the native fault-injected pixel tests; it was not selected by this GPU in
+the game run. Gameplay and audio remain unverified.
+
+The fallback can cost more bandwidth and time because it reads the full frame,
+and direct mode disables FSAA. The one-pixel path remains available on supporting
+devices. Tests do not
 establish the reporter's Intel performance or successful startup on that GPU.
 
 All test artifacts and the single playable candidate live in ignored

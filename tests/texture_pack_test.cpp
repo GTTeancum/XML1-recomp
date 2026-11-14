@@ -138,6 +138,8 @@ int main() {
     D3DDISPLAYMODE mode={};checked(api->GetAdapterDisplayMode(0,&mode));
     D3DPRESENT_PARAMETERS pp={};pp.BackBufferWidth=640;pp.BackBufferHeight=480;pp.BackBufferFormat=mode.Format;pp.BackBufferCount=1;pp.SwapEffect=D3DSWAPEFFECT_DISCARD;pp.hDeviceWindow=window;pp.Windowed=TRUE;pp.EnableAutoDepthStencil=TRUE;pp.AutoDepthStencilFormat=D3DFMT_D24S8;
     IDirect3DDevice8 *device=nullptr;checked(api->CreateDevice(0,D3DDEVTYPE_HAL,window,D3DCREATE_HARDWARE_VERTEXPROCESSING|D3DCREATE_FPU_PRESERVE,&pp,&device));
+    checked(device->Clear(0,nullptr,D3DCLEAR_TARGET,0,1,0));
+    checked(native_readback.initialize(device));
 
     std::vector<unsigned char> wire(red,red+16);
     IDirect3DTexture8 *hd=texture_pack::replacement(device,4,4,14,wire,D3DFMT_DXT3);

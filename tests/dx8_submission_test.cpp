@@ -34,6 +34,8 @@ int main() {
     D3DDISPLAYMODE mode={};checked(api->GetAdapterDisplayMode(0,&mode));
     D3DPRESENT_PARAMETERS pp={};pp.BackBufferWidth=1920;pp.BackBufferHeight=1080;pp.BackBufferFormat=mode.Format;pp.BackBufferCount=1;pp.SwapEffect=D3DSWAPEFFECT_DISCARD;pp.hDeviceWindow=window;pp.Windowed=TRUE;pp.EnableAutoDepthStencil=TRUE;pp.AutoDepthStencilFormat=D3DFMT_D24S8;
     IDirect3DDevice8 *device=nullptr;checked(api->CreateDevice(0,D3DDEVTYPE_HAL,window,D3DCREATE_HARDWARE_VERTEXPROCESSING|D3DCREATE_FPU_PRESERVE,&pp,&device));
+    checked(device->Clear(0,nullptr,D3DCLEAR_TARGET,0,1,0));
+    checked(native_readback.initialize(device));
     output_width=1920;output_height=1080;
     uint32_t clear[]={0xf1,0xffff0000,0x3f800000,0,0};
     std::vector<unsigned char> packet;append(packet,clear);command(device,"XMLDX8C5",packet);

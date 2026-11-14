@@ -279,10 +279,40 @@ int main(int argc, char** argv) {
         xml1_pc_channel_close();DestroyWindow(window);api->Release();FreeLibrary(library);return 2;
     }
     pp.MultiSampleType=static_cast<D3DMULTISAMPLE_TYPE>(fsaa);
-    pp.Flags = 0; // Completion uses a one-pixel image copy; no lockable backbuffer.
+    pp.Flags = 0;
     IDirect3DDevice8* device = nullptr;
     hr = api->CreateDevice(adapter_index, D3DDEVTYPE_HAL, window,
         D3DCREATE_HARDWARE_VERTEXPROCESSING | D3DCREATE_FPU_PRESERVE, &pp, &device);
+    if (SUCCEEDED(hr)) {
+        hr = device->Clear(0,nullptr,D3DCLEAR_TARGET,0,1,0);
+        if (SUCCEEDED(hr)) hr = native_readback.initialize(device);
+    }
+    if (hr == D3DERR_INVALIDCALL || hr == D3DERR_NOTAVAILABLE) {
+        // This happens before showing the window or consuming any guest commands.
+        // Direct locking is independent of the image allocation/CopyRects path.
+        native_readback.clear();
+        if (device) { device->Release(); device=nullptr; }
+        pp.MultiSampleType=D3DMULTISAMPLE_NONE;
+        pp.Flags=D3DPRESENTFLAG_LOCKABLE_BACKBUFFER;
+        hr=api->CreateDevice(adapter_index,D3DDEVTYPE_HAL,window,
+            D3DCREATE_HARDWARE_VERTEXPROCESSING|D3DCREATE_FPU_PRESERVE,&pp,&device);
+        if (SUCCEEDED(hr)) {
+            hr=device->Clear(0,nullptr,D3DCLEAR_TARGET,0,1,0);
+            if (SUCCEEDED(hr)) hr=native_readback.initialize(device,true);
+        }
+        if (SUCCEEDED(hr)) {
+            fsaa=0;fsaa_modes=1;
+            if(pc_connected) {
+                xml1_pc_channel_set_fsaa_modes(fsaa_modes);
+                initial_input.settings.fsaa=0;
+                xml1_pc_channel_set_settings(&initial_input.settings);
+            }
+            std::fprintf(stderr,"[DX8 READBACK] Automatic compatibility mode: direct lock, FSAA off\n");
+        }
+    }
+    if (FAILED(hr) && device) {
+        native_readback.clear(); device->Release(); device=nullptr;
+    }
     std::printf("%s D3D8 HAL device creation: %08lx\n", visible ? "Visible playtest" : "Hidden", static_cast<unsigned long>(hr));
     std::printf("Native backbuffer: %ux%u\n",render_width,render_height);
     std::printf("Native FSAA: %u; supported mask=%08x\n",fsaa,fsaa_modes);
@@ -295,15 +325,6 @@ int main(int argc, char** argv) {
         if(vblankMode || replayMode || benchmarkMode) {
             try {native_vblank.open(api->GetAdapterMonitor(adapter_index));}
             catch(const std::exception& e){std::fprintf(stderr,"%s\n",e.what());device->Release();api->Release();FreeLibrary(library);return 2;}
-        }
-    }
-    if(device && fsaa) {
-        // Fail before consuming any guest work if this driver cannot resolve
-        // its multisampled surface for the mandatory completion/capture path.
-        try { checked(device->Clear(0,nullptr,D3DCLEAR_TARGET,0,1,0));complete_rendering(device); }
-        catch(const std::exception &error) {
-            std::fprintf(stderr,"FSAA readback initialization failed: %s\n",error.what());
-            native_readback.clear();device->Release();device=nullptr;hr=E_FAIL;
         }
     }
     if (device && visible) {
