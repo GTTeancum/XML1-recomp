@@ -547,7 +547,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         if(!raven_pc_sound_cache_init(test_game_dir ? test_game_dir : YOUR_GAME_DIR))return 4;
         if(!raven_shared_powerups_init(test_game_dir ? test_game_dir : YOUR_GAME_DIR))return 4;
         xbox_set_asset_path_filter(xml1_game_asset_filter);
-        xbox_path_init(test_game_dir ? test_game_dir : YOUR_GAME_DIR, NULL);
+        /* Diagnostic runs must not create partition images in the user's
+         * AppData. XML1_TEST_GAME_DIR is already gated by process-local mode. */
+        char test_save_dir[MAX_PATH];
+        if(test_game_dir) {
+            int n=snprintf(test_save_dir,sizeof(test_save_dir),"%s/.test-save",test_game_dir);
+            if(n<0 || n>=sizeof(test_save_dir)) {
+                fprintf(stderr,"Diagnostic save directory is too long\n");return 4;
+            }
+        }
+        xbox_path_init(test_game_dir ? test_game_dir : YOUR_GAME_DIR, test_game_dir ? test_save_dir : NULL);
         if(!raven_imported_talents_init(test_game_dir ? test_game_dir : YOUR_GAME_DIR,
                 xml1_build_settings.text_language,settings_error,sizeof(settings_error))) {
             fprintf(stderr,"[IMPORTED TALENTS ERROR] %s\n",settings_error);

@@ -28,7 +28,7 @@ for hint in (b'NvOptimusEnablement', b'AmdPowerXpressRequestHighPerformance'):
         f'Embedded renderer GPU preference is disabled: {hint!r}'
 print('Embedded renderer: NVIDIA and AMD high-performance hints enabled')
 system = {'kernel32.dll', 'user32.dll', 'gdi32.dll', 'advapi32.dll',
-          'ole32.dll', 'oleaut32.dll', 'shell32.dll', 'shlwapi.dll',
+          'ole32.dll', 'oleaut32.dll', 'shell32.dll', 'shlwapi.dll', 'windowscodecs.dll',
           'winmm.dll', 'ws2_32.dll', 'bcrypt.dll', 'comctl32.dll',
           'dbghelp.dll', 'xaudio2_9.dll', 'xinput1_4.dll', 'd3d11.dll',
           'dxgi.dll', 'd3dcompiler_47.dll', 'ntdll.dll', 'version.dll',
