@@ -12,7 +12,7 @@ groups were found. This table describes local work, not GitHub closure status.
 | GitHub issue | Local outcome | Evidence and remaining limits |
 | --- | --- | --- |
 | #24 | Fullscreen/aspect handling implemented; 60 FPS retained as the maintainer requested | Native hidden-window geometry, presentation and pointer checks pass. Physical fullscreen interaction and multiple-machine acceptance are unverified. |
-| #27, #28, #31, #32 | Reproduced Conversion Sequencer draw failure fixed | Exact FVF/stride reproducer, indexed/nonindexed pixel tests and movement beyond the old crash point pass. Each reporter's save and transition is unverified; grouping does not prove every report has this same cause. |
+| #27, #28, #31, #32 | Reproduced Conversion Sequencer draw failure fixed | Exact draw/pixel tests, isolated Reactor Core panel-to-door transition and Sequencer walkway traversal pass. Reporter saves and full mission progression remain unverified; grouping does not establish identical causes. |
 | #29: custom resolutions | Implemented with bounded dimensions and aspect-preserving output | Settings, native geometry/pointer checks and inspected custom-resolution captures pass. Not every GPU/output mode has been tested. |
 | #29: PS2 prompts | Optional pack builder implemented and documented | Native Cross/Select and Circle/Back inspected; ordinary font pixels preserved. Gameplay-wide prompt coverage and physical PlayStation-controller operation are unverified. |
 | #29: texture support/audit | Xbox template export audited; same-size replacement and mip-chain cache defects fixed | 3,631-texture export, native replacement tests and two bounded gameplay runs completed. The unidentified historical flickering pack has not been reproduced or established fixed. PS2 pack identifiers require artwork matching to Xbox keys. |
@@ -74,6 +74,35 @@ native pixel-test output and captures. Candidate executable SHA256:
 `5326041998c744f28d2f4d75130bde029f9cbb6805dea364d161dc787c59fdf1`.
 Embedded-renderer integrity/system-import checks passed. Group remains locally
 fixed with reporter-specific transition coverage unverified; nothing posted.
+
+### Expanded transition check (2026-11-14)
+
+The current staged executable also passes an isolated Reactor Core panel/door
+check. Process-local input activated the original control-panel script; native
+captures show its camera sequence and the exit door changing from closed to
+open. Using the actual zone link loaded Conversion Sequencer. The party then
+broke a barrel and moved onto the grated walkway beyond the earlier test point.
+
+Captured draw streams at entry (frame 4845) and on the walkway (frame 9986)
+each contain the formerly rejected `0x500452` / 68-byte triangle strips:
+931 indices / 567 unique vertices and 1,408 indices / 842 unique vertices.
+Both complete frames replay successfully through the exact embedded renderer;
+the resulting images were inspected for characters, machinery, walkway and
+water. No renderer fatal occurred; the run ended at its 180-second watchdog.
+
+Fixture limits: pump completion was supplied, Reactor Core enemy spawns were
+removed, heroes were invulnerable, and the original coolant-side spawn was
+selected. After using the panel, the fixture repositioned the party near the
+exit; it did not verify the intervening walk. The panel script, door script and
+Sequencer map were unchanged. Coolant surface rise was not established by the
+inspected captures. Audio was muted. This is not a reporter-save replay or
+full mission acceptance. All temporary staged files were restored byte-for-byte.
+
+Private proof: `XBOXgame/logs/sequencer-transition-confirmation/`, especially
+`verification.json`, `entry-draws.json`, `walkway-draws.json`, captures 2/5
+(closed/open door), 6 (Sequencer entrance), 10 (walkway), and both replay logs
+and images. Replay packets remain under `XBOXgame/build/dx8-request-9103-*`
+and `dx8-request-9105-*`. No additional player build was created.
 
 ## Display, prompts and textures: #24, #29
 
