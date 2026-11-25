@@ -12,6 +12,10 @@
 /* D8 carries the same version-8 draw records as F8/R8, but acknowledges
  * ordered submission only. It neither presents nor publishes GPU completion;
  * a subsequent F8/R8 must complete all preceding D8 draws and C5 clears. */
+/* C6 preserves C5's five uint32 fields and 16-byte rectangle layout, but
+ * every rectangle is already clipped to the Xbox viewport active at Clear.
+ * Zero rectangles mean no pixels (not the whole target); replay C4/C5 using
+ * their historical behavior. Like C5, C6 does not signal a guest fence. */
 /* Version6 packs the explicit mip count above the low-byte Xbox format. Older
  * packets carry a bare format and therefore represent one level. */
 static unsigned xml1_texture_levels(uint32_t format) { return (format>>8)?(format>>8):1; }

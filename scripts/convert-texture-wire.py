@@ -19,7 +19,7 @@ def convert(data, persistent=False):
         magic=take(8)
         if magic==b'XMLDX8S1':
             out+=magic+take(8);continue
-        if magic in (b'XMLDX8C4', b'XMLDX8C5'):
+        if magic in (b'XMLDX8C4', b'XMLDX8C5', b'XMLDX8C6'):
             header=take(20);count=struct.unpack('<5I',header)[4]
             out+=magic+header+take(count*16);continue
         assert magic in (b'XMLDX8F6',b'XMLDX8R6'),magic

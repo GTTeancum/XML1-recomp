@@ -10,6 +10,7 @@
 #include <cstdio>
 #include "app/loose_extract.h"
 #include "app/loose_setup.h"
+#include "app/shadow_king_roster.h"
 #include "engine/resources/xmlb.h"
 #include "ui/pc_menu.h"
 #include <vector>
@@ -22,7 +23,7 @@ struct SetupLock {
     ~SetupLock() {if(handle!=INVALID_HANDLE_VALUE)CloseHandle(handle);}
 };
 struct Setup {
-    fs::path root,archive,stage;
+    fs::path root,archive,stage;std::string language;
     std::atomic<bool> cancel{false},finished{false};
     std::mutex mutex;unsigned done=0,total=1;std::string current="Preparing files",error;
     bool success=false,extract=true;std::thread worker;
@@ -42,6 +43,19 @@ void cleanup_stage(Setup& s) {
     if(attrs==INVALID_FILE_ATTRIBUTES)return;
     if(attrs&FILE_ATTRIBUTE_REPARSE_POINT)throw std::runtime_error("Setup staging directory became a link");
     fs::remove_all(stage);
+}
+// Called with the setup lock held and a staging directory we own. Never
+// patch the source .chr or the Xbox archive, and never expose a partial XMLB.
+void publish_roster(const Setup& s,const xml1::BinaryXml& bytes) {
+    if(bytes.empty())return;
+    auto pending=s.stage/"shadow-king-roster.tmp";
+    std::ofstream f(pending,std::ios::binary);
+    f.write(reinterpret_cast<const char*>(bytes.data()),static_cast<std::streamsize>(bytes.size()));
+    f.close();
+    if(!f || !MoveFileExW(pending.c_str(),(s.root/xml1::shadow_king_roster).c_str(),
+                         MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH))
+        throw std::runtime_error("Cannot update the Shadow King map character list");
+    fprintf(stderr,"[LOOSE SETUP] Added required Professor X to the Shadow King map character list\n");
 }
 void run(Setup& s) {
     try {
@@ -114,6 +128,7 @@ void run(Setup& s) {
             auto target=s.root/fs::relative(entry.path(),compiled);
             if(!MoveFileExW(entry.path().c_str(),target.c_str(),MOVEFILE_WRITE_THROUGH))throw std::runtime_error("Cannot publish XMLB: "+target.u8string());
         }
+        publish_roster(s,xml1::shadow_king_roster_fix(s.root,s.language));
         auto marker=[&](const char *name,const char *contents){
             if(s.cancel)throw std::runtime_error("Setup cancelled");
             auto pending=s.stage/name;std::ofstream file(pending,std::ios::binary);file<<contents;file.close();
@@ -146,11 +161,12 @@ HRESULT CALLBACK dialog(HWND window,UINT message,WPARAM w,LPARAM,LONG_PTR data) 
     return S_OK;
 }
 }
-extern "C" int xml1_prepare_loose_assets(const char *game_root,int headless,char *error,unsigned error_size) {
+extern "C" int xml1_prepare_loose_assets(const char *game_root,const char *text_language,int headless,char *error,unsigned error_size) {
     Setup s;
     SetupLock setup_lock;
     try {
         s.root=fs::absolute(fs::u8path(game_root));
+        s.language=text_language;
         fs::path marker=s.root/".xml1-loose-ready";
         if(fs::exists(marker)) {
             std::ifstream f(marker);std::string version;std::getline(f,version);
@@ -164,21 +180,43 @@ extern "C" int xml1_prepare_loose_assets(const char *game_root,int headless,char
             if(version!="OpenXML1 XMLB assets version 1")throw std::runtime_error("Unrecognized XMLB setup marker");
             return true;
         };
-        if(!s.extract&&binary_ready())return 1;
+        const bool already_ready=!s.extract && binary_ready();
+        if(already_ready && xml1::shadow_king_roster_fix(s.root,s.language).empty())return 1;
         s.archive=s.root/"z/assetsfb.zip";
         if(s.extract&&!fs::is_regular_file(s.archive))throw std::runtime_error("First-run setup needs z/assetsfb.zip in the game directory.");
         setup_lock.handle=CreateFileW((s.root/".xml1-loose-setup.lock").c_str(),GENERIC_READ|GENERIC_WRITE,
             0,nullptr,OPEN_ALWAYS,FILE_ATTRIBUTE_TEMPORARY|FILE_FLAG_DELETE_ON_CLOSE,nullptr);
-        if(setup_lock.handle==INVALID_HANDLE_VALUE)
+        if(setup_lock.handle==INVALID_HANDLE_VALUE) {
+            // This optional repair must not lock a previously working install
+            // out of every other level if its directory is busy or read-only.
+            if(already_ready) {
+                fprintf(stderr,"[LOOSE SETUP] Shadow King roster update deferred: directory is busy or read-only\n");
+                return 1;
+            }
             throw std::runtime_error("Cannot start setup. Close any other game setup using this directory and check that the directory is writable.");
+        }
+        s.stage=s.root/(".loose-setup-"+std::to_string(GetCurrentProcessId())+"-"+std::to_string(GetTickCount64()));
         // A second process may have completed setup between the first check and lock acquisition.
         if(fs::exists(marker)) {
             std::ifstream f(marker);std::string version;std::getline(f,version);
             if(version!="OpenXML1 loose assets version 1")throw std::runtime_error("Unrecognized loose setup marker");
             s.extract=false;
-            if(binary_ready())return 1;
+            if(binary_ready()) {
+                // An existing installation may predate #36. Recheck under the
+                // lock; no extraction, mass recompilation or marker reset.
+                const auto fix=xml1::shadow_king_roster_fix(s.root,s.language);
+                if(!fix.empty()) {
+                    try {
+                        if(!fs::create_directory(s.stage))throw std::runtime_error("Migration staging directory exists");
+                        try {publish_roster(s,fix);} catch(...) {cleanup_stage(s);throw;}
+                        cleanup_stage(s);
+                    } catch(const std::exception& e) {
+                        fprintf(stderr,"[LOOSE SETUP] Shadow King roster update deferred: %s\n",e.what());
+                    }
+                }
+                return 1;
+            }
         }
-        s.stage=s.root/(".loose-setup-"+std::to_string(GetCurrentProcessId())+"-"+std::to_string(GetTickCount64()));
         if(headless)run(s);
         else {
             INITCOMMONCONTROLSEX controls{sizeof(controls),ICC_PROGRESS_CLASS};InitCommonControlsEx(&controls);

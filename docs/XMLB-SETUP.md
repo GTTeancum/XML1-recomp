@@ -21,7 +21,13 @@ just the conversion on its next launch; it does not require the ZIP again.
 - Saves, settings, media and IGB artwork are not converted.
 - `.xml1-xmlb-ready` is published only after successful conversion and installation.
   It must not be distributed in beta packages. Cancellation/failure can be retried;
-  complete existing binaries are validated, never overwritten.
+  complete existing binaries are validated and retained.
+- For [the Shadow King encounter (#36)](https://github.com/GTTeancum/XML1-recomp/issues/36),
+  setup also checks the selected language's mission and the generated map roster on
+  existing installs. If the mission requires ProfXGladiator and the roster contains
+  only the three Shadow King actors, his map entry is added to the compiled roster.
+  Other rosters and binary overlays that differ from the compiled source are left
+  alone. No archive, text original, or save is rewritten.
 
 No new DLL, external converter, Python installation or command-line launcher is
 required for players. The codec is part of the self-contained game executable.

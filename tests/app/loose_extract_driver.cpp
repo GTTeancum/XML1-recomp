@@ -9,9 +9,11 @@ static int report(void *context,unsigned done,unsigned total,const char *name) {
 }
 int wmain(int argc,wchar_t **argv) {
     char error[1024]={0};
-    if(argc==3 && !wcscmp(argv[1],L"--setup")) {
+    if((argc==3 || argc==4) && !wcscmp(argv[1],L"--setup")) {
         char root[4096];if(!WideCharToMultiByte(CP_UTF8,0,argv[2],-1,root,sizeof(root),NULL,NULL))return 2;
-        if(xml1_prepare_loose_assets(root,1,error,sizeof(error)))return 0;
+        char language[4]="eng";
+        if(argc==4 && !WideCharToMultiByte(CP_UTF8,0,argv[3],-1,language,sizeof(language),NULL,NULL))return 2;
+        if(xml1_prepare_loose_assets(root,language,1,error,sizeof(error)))return 0;
     } else {
         if(argc!=3 && argc!=4)return 2;
         if(xml1_extract_loose(argv[1],argv[2],report,argc==4?(void*)1:NULL,error,sizeof(error)))return 0;

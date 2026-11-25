@@ -1,4 +1,5 @@
 // Diagnostic replay of actual XML1 submissions. No host input or desktop capture.
+#include <algorithm>
 #include <cstdint>
 #include <vector>
 #include <string>
@@ -88,6 +89,23 @@ static D3DVIEWPORT8 output_viewport(D3DVIEWPORT8 input) {
     input.X=content.x+scale_coordinate(input.X,content.width,source_width);
     input.Y=content.y+scale_coordinate(input.Y,content.height,source_height);
     input.Width=right-input.X;input.Height=bottom-input.Y;return input;
+}
+// These pixels are not part of the guest render target. When the first
+// packet is an actual viewport clear, initialize only the output margins;
+// its color/depth/stencil flags control what happens inside the picture.
+static bool clear_output_margins(IDirect3DDevice8* device) {
+    auto c=xml1_fit_content(output_width,output_height,xml1_guest_display_width(source_width,source_height),source_height);
+    LONG w=(LONG)output_width,h=(LONG)output_height,right=c.x+c.width,bottom=c.y+c.height;
+    D3DRECT bars[4];DWORD count=0;
+    if(c.y>0)bars[count++]={0,0,w,c.y};
+    if(bottom<h)bars[count++]={0,bottom,w,h};
+    if(c.x>0)bars[count++]={0,c.y,c.x,bottom};
+    if(right<w)bars[count++]={right,c.y,w,bottom};
+    if(!count)return false;
+    D3DVIEWPORT8 full={0,0,output_width,output_height,0,1};
+    cached_viewport(device,&full);
+    checked(device->Clear(count,bars,D3DCLEAR_TARGET,0,1,0));
+    return true;
 }
 struct WireTextureEntry {
     unsigned width,height; uint32_t packed;
@@ -354,7 +372,8 @@ static bool replay_stream(IDirect3DDevice8* device, FILE* file, const char* capt
         wait_native_vblank(device);
         return false;
     }
-    if(!std::memcmp(magic,"XMLDX8C4",8) || !std::memcmp(magic,"XMLDX8C5",8)) {
+    const bool clipped_clear=!std::memcmp(magic,"XMLDX8C6",8);
+    if(clipped_clear || !std::memcmp(magic,"XMLDX8C4",8) || !std::memcmp(magic,"XMLDX8C5",8)) {
         uint32_t clear[5]; read(clear,sizeof(clear));
         if((clear[0]&~0xF3u)||((clear[0]&0xF0)!=0&&(clear[0]&0xF0)!=0xF0)||clear[4]>4096)
             throw std::runtime_error("Unsupported clear command");
@@ -367,20 +386,37 @@ static bool replay_stream(IDirect3DDevice8* device, FILE* file, const char* capt
             area=output_viewport(area);
             rect={(LONG)area.X,(LONG)area.Y,(LONG)(area.X+area.Width),(LONG)(area.Y+area.Height)};
         }
-        if(!frame_open) { D3DVIEWPORT8 full={0,0,output_width,output_height,0,1};cached_viewport(device,&full);checked(device->Clear(0,nullptr,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER|D3DCLEAR_STENCIL,0,1.0f,0)); }
+        bool margins_cleared=false;
+        if(!frame_open) {
+            if(clipped_clear) margins_cleared=clear_output_margins(device);
+            else {
+                D3DVIEWPORT8 full={0,0,output_width,output_height,0,1};
+                cached_viewport(device,&full);
+                checked(device->Clear(0,nullptr,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER|D3DCLEAR_STENCIL,0,1.0f,0));
+            }
+        }
         frame_open=true;
         DWORD flags=((clear[0]&0xF0)?D3DCLEAR_TARGET:0)|((clear[0]&1)?D3DCLEAR_ZBUFFER:0)|((clear[0]&2)?D3DCLEAR_STENCIL:0);
         float depth; std::memcpy(&depth,&clear[2],4);
-        if(!clear[4]) {
+        if(clipped_clear) {
+            /* C6 boxes are already intersected in guest space. Native D3D8
+             * additionally clips Clear to its current viewport, which might
+             * still belong to an unrelated draw. A following draw sets its own. */
+            auto content=output_viewport({0,0,source_width,source_height,0,1});
+            cached_viewport(device,&content);
+            rects.erase(std::remove_if(rects.begin(),rects.end(),[](const D3DRECT& r){
+                return r.x1==r.x2 || r.y1==r.y2; // may collapse when downscaling
+            }),rects.end());
+        } else if(!clear[4]) {
             auto content=xml1_fit_content(output_width,output_height,xml1_guest_display_width(source_width,source_height),source_height);
             rects.push_back({content.x,content.y,content.x+content.width,content.y+content.height});
         }
-        checked(device->Clear((DWORD)rects.size(),rects.data(),flags,clear[1],depth,clear[3]));
-        // C4 retains its historical completion acknowledgement. C5 only
+        if(!rects.empty()) checked(device->Clear((DWORD)rects.size(),rects.data(),flags,clear[1],depth,clear[3]));
+        // C4 retains its historical completion acknowledgement. C5/C6 only
         // acknowledges ordered submission; an explicit F8 fence or R8 swap
         // still performs the GPU completion barrier before publishing a fence.
         if(magic[7]=='4') {complete_rendering(device);completion_pending=false;}
-        else completion_pending=true;
+        else if(!rects.empty() || margins_cleared) completion_pending=true;
         return false;
     }
     const bool version9=magic[7]=='9';

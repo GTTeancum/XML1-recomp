@@ -63,8 +63,17 @@ int main() {
     auto retail=output_viewport({0,0,720,480,0,1});
     REQUIRE(retail.X==240 && retail.Y==0 && retail.Width==1440 && retail.Height==1080);
     source_width=640;source_height=480;
+    // A new frame's first C6 depth-only clear must not reset the world's
+    // color. Initialize the raw output ourselves so this detects an implicit
+    // black fullscreen Clear, not the natural color of a discarded surface.
+    checked(device->Clear(0,nullptr,D3DCLEAR_TARGET,0xffab2345,1,0));
+    std::vector<unsigned char> packet;
+    uint32_t first[]={1,0,0x3f800000,0,1};D3DRECT upper_right={320,0,640,240};
+    append(packet,first);append(packet,upper_right);command(device,"XMLDX8C6",packet);
+    REQUIRE(pixel(device,260,20)==0xab2345 && pixel(device,1460,100)==0xab2345);
+    REQUIRE(pixel(device,10,20)==0 && pixel(device,1800,20)==0);
     uint32_t clear[]={0xf1,0xffff0000,0x3f800000,0,0};
-    std::vector<unsigned char> packet;append(packet,clear);command(device,"XMLDX8C5",packet);
+    packet.clear();append(packet,clear);command(device,"XMLDX8C5",packet);
     REQUIRE(completion_waits==0);
     packet.clear();uint32_t count=1;append(packet,count);
     uint32_t header[]={2,2,3,6,0x142,5};append(packet,header);
@@ -86,6 +95,26 @@ int main() {
     command(device,"XMLDX8F8",packet);REQUIRE(completion_waits==1);
     REQUIRE(pixel(device,10,10)==0 && pixel(device,1800,100)==0);
     puts("PASS ordered draw/partial clear preserves pixels; explicit fence completes once; redundant empty fence does not wait");
+    // C6 carries the effective Xbox clear rectangles, regardless of the
+    // viewport of the last submitted draw. Keep the left and right 4:3
+    // bars untouched. C4/C5 above retain their historical payload behavior.
+    auto rectclear=[&](DWORD color,const D3DRECT* box) {
+        packet.clear();uint32_t info[]={0xf0,color,0x3f800000,0,box?1u:0u};
+        append(packet,info);if(box)append(packet,*box);command(device,"XMLDX8C6",packet);
+    };
+    packet=blue_packet;
+    D3DVIEWPORT8 previous_area={0,0,240,480,0,1};
+    std::memcpy(packet.data()+sizeof(count)+sizeof(header),&previous_area,sizeof(previous_area));
+    command(device,"XMLDX8D8",packet);
+    D3DRECT right_box={320,0,640,480}, full_box={0,0,640,480};
+    rectclear(0xff007733,&right_box);
+    REQUIRE(pixel(device,1460,300)==0x007733 && pixel(device,250,10)==0x00ff00);
+    rectclear(0xff997700,nullptr);
+    REQUIRE(pixel(device,1460,300)==0x007733 && pixel(device,250,10)==0x00ff00);
+    rectclear(0xff234567,&full_box);
+    REQUIRE(pixel(device,250,20)==0x234567 && pixel(device,1460,300)==0x234567);
+    REQUIRE(pixel(device,10,20)==0 && pixel(device,1800,20)==0);
+    puts("PASS C6 cropped, no-op and full guest clears across viewport changes and pillarboxing");
     // Bind blue, explicitly unbind it, then bind blue again. No placeholder
     // texture is allowed: inspect both native binding and the rendered pixels.
     packet.clear();append(packet,count);

@@ -528,7 +528,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         if(xml1_build_settings.prefer_files_loose) {
             char setup_error[1024];
             if(!xml1_prepare_loose_assets(test_game_dir ? test_game_dir : YOUR_GAME_DIR,
-                                         s_headless,setup_error,sizeof(setup_error))) {
+                                         xml1_build_settings.text_language,s_headless,setup_error,sizeof(setup_error))) {
                 fprintf(stderr,"[LOOSE SETUP ERROR] %s\n",setup_error);
                 return 4;
             }

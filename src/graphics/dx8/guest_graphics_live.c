@@ -2,6 +2,7 @@
 #include "graphics/dx8/vertex_program.h"
 #include "xbox_memory_layout.h"
 #include "graphics/dx8/dx8_packet.h"
+#include "graphics/dx8/clear_region.h"
 #include "input/guest_input.h"
 #include "ui/pc_menu.h"
 #include "platform/windows/fair_gate.h"
@@ -231,7 +232,6 @@ static xml1_texture_wire_cache texture_wire;
 static uint32_t wire_reset_pending=1;
 unsigned xml1_graphics_frame_number(void) { return frames; }
 static uint32_t sequence;
-static int frame_geometry;
 static void fatal(const char* message);
 static FILE *capture_stream;
 static unsigned capture_request_id;
@@ -564,13 +564,10 @@ void xml1_graphics_live_observe(uint32_t va) {
     else if (va==0x35D360&&a[0]==0) { stream=a[1]; stride=a[2]; }
     else if (va==0x35D900) { unsigned m=(g_ecx&0x1FFF)/4; methods[m]=g_edx; method_set[m]=1; }
     else if (va==0x362430) {
-        /* Coalesce the observed startup clear, preserving all later clears in
-         * submission order through native DX8 commands. */
-        if (frame_geometry||a[0]||a[1]||((a[2]&0xF0)&&a[3])||((a[2]&1)&&a[4]!=0x3F800000)||((a[2]&2)&&a[5])) {
-            static unsigned reports;
-            if(reports++<8) fprintf(stderr,"[DX8 CLEAR] count=%u rect=%08X flags=%08X color=%08X depth=%08X stencil=%08X\n",a[0],a[1],a[2],a[3],a[4],a[5]);
-            ordered_clear(a);
-        }
+        /* Even the first black or depth-only clear can cover just a viewport. */
+        static unsigned reports;
+        if(reports++<8) fprintf(stderr,"[DX8 CLEAR] count=%u rect=%08X flags=%08X color=%08X depth=%08X stencil=%08X\n",a[0],a[1],a[2],a[3],a[4],a[5]);
+        ordered_clear(a);
     }
     else if (va==0x367AF0||va==0x367B90) {
         int indexed=va==0x367B90;
@@ -734,7 +731,6 @@ void xml1_graphics_live_observe(uint32_t va) {
             else append(vertices,(size_t)bytes);
         }
         ++draws;
-        frame_geometry=1;
     }
 }
 static void send_bytes(const void* data,size_t bytes) {
@@ -830,7 +826,19 @@ static void ordered_clear(const uint32_t *a) {
     lock_transport("clear");
     if((a[2]&~0xF3u)||((a[2]&0xF0)!=0&&(a[2]&0xF0)!=0xF0)||a[0]>4096)
         fatal("unsupported clear flags or rectangle count");
-    const void *rects=a[0]?guest(a[1],(size_t)a[0]*16):NULL;
+    /* SetViewport stores the clamped viewport at device+EE0 (0035BBB8).
+     * Read the same fields Clear actually consumes, not the last draw or the
+     * unclamped SetViewport argument. Scratch is owned by the transport lock. */
+    static xml1_clear_rect regions[4096];
+    uint32_t device=*(const uint32_t *)guest(0x36CAF8,4), view[4], count=0;
+    memcpy(view,guest(device+0xEE0,sizeof(view)),sizeof(view));
+    const unsigned char *rects=a[0]?guest(a[1],(size_t)a[0]*sizeof(*regions)):NULL;
+    for(uint32_t i=0;i<(a[0]?a[0]:1);++i) {
+        xml1_clear_rect input;
+        if(rects) memcpy(&input,rects+(size_t)i*sizeof(input),sizeof(input));
+        count+=xml1_clear_region(view,source_dimensions[0],source_dimensions[1],
+                                 rects?&input:NULL,&regions[count]);
+    }
     if(pipe==INVALID_HANDLE_VALUE) connect_worker();
     if(draws) {
         /* D8 acknowledges ordered submission only. A clear must follow these
@@ -838,9 +846,9 @@ static void ordered_clear(const uint32_t *a) {
         queue_mode();queue_bytes("XMLDX8D9",8);queue_bytes(&draws,4);queue_bytes(packet,used);++ordered_commands;
         draws=0; used=0;
     }
-    uint32_t header[5]={a[2],a[3],a[4],a[5],a[0]};
-    queue_mode();queue_bytes("XMLDX8C5",8);queue_bytes(header,sizeof(header));
-    if(a[0])queue_bytes(rects,(size_t)a[0]*16);
+    uint32_t header[5]={a[2],a[3],a[4],a[5],count};
+    queue_mode();queue_bytes("XMLDX8C6",8);queue_bytes(header,sizeof(header));
+    if(count)queue_bytes(regions,(size_t)count*sizeof(*regions));
     ++ordered_commands;
     xml1_fair_leave(&transport_lock);
 }
@@ -884,7 +892,7 @@ void xml1_graphics_swap(void) {
             1000.0*minimum,1000.0*(now.QuadPart-previous.QuadPart)/frequency.QuadPart,1000.0*(game-previous_game));
         previous=now;previous_game=game;
     }
-    draws=0; used=0; frame_geometry=0;
+    draws=0; used=0;
     /* Return only after the native renderer has consumed the submitted frame. */
     g_eax=0; g_esp+=8;
     xml1_fair_leave(&transport_lock);
