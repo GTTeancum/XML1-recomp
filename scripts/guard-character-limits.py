@@ -311,3 +311,42 @@ for anchor,trace in {
 }.items():
  s=replace_once(s,anchor,anchor+'\n    '+trace)
 write(state,s)
+
+# Permit outfit cycling independently of campaign progression. Resolve both
+# save-derived and explicit skins at the common native resource-name boundary.
+for address, hooks in {
+    0x8C2F0: {
+        'loc_0008C2F0: ;': '''    if (xml1_costumes_active()) { SET_LO8(eax,1); esp+=4; return; }''',
+    },
+    0xB0D30: {
+        'loc_000B0D30: ;': '''    { unsigned pc_current = MEM8(ecx+0x1E);
+      if (pc_current == 255) pc_current = MEM8(ecx+0x371);
+      unsigned pc_next = xml1_costume_next((const char*)XBOX_PTR(ecx+0x20C),
+                                           MEM8(ecx+0x370),pc_current);
+      if (pc_next) { MEM8(ecx+0x1E) = (uint8_t)pc_next; esp+=4; return; }
+    }''',
+    },
+    0xB0EA0: {
+        'loc_000B0ED4: ;': '''    /* Preserve native mission outfits when available. A missing saved
+     * explicit choice resolves to the default without changing the save byte. */
+    { const char *pc_name = (const char*)XBOX_PTR(esi+0x20C);
+      unsigned pc_family = MEM8(esi+0x370), pc_saved = MEM8(esi+0x1E);
+      unsigned pc_variant = LO8(eax);
+      if (!MEM8(esp+0xC) && pc_saved != 255) {
+          unsigned pc_restore = xml1_costume_fallback(pc_name,pc_family,pc_saved);
+          if (pc_restore && pc_restore != pc_saved) pc_variant = pc_restore;
+      }
+      unsigned pc_safe = xml1_costume_fallback(pc_name,pc_family,pc_variant);
+      if (pc_safe) SET_LO8(eax,pc_safe);
+    }''',
+        'loc_000B0EE2: ;': '''    { unsigned pc_safe = xml1_costume_fallback((const char*)XBOX_PTR(esi+0x20C),
+                                                MEM8(esi+0x370),eax);
+      if (pc_safe) eax = pc_safe;
+    }''',
+    },
+}.items():
+    state, s = read(address)
+    s += '#include "game/xml1/costume_catalog.h"\n'
+    for anchor, hook in hooks.items():
+        s = replace_once(s, anchor, anchor+'\n'+hook)
+    write(state,s)

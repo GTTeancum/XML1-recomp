@@ -38,6 +38,7 @@
 #include <math.h>
 #include "app/build_settings.h"
 #include "app/loose_setup.h"
+#include "game/xml1/costume_catalog.h"
 #include "engine/resources/asset_routes.h"
 #include "audio/raven_pc_sound_cache.h"
 #include "engine/powers/raven_shared_powerups_runtime.h"
@@ -530,6 +531,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             if(!xml1_prepare_loose_assets(test_game_dir ? test_game_dir : YOUR_GAME_DIR,
                                          xml1_build_settings.text_language,s_headless,setup_error,sizeof(setup_error))) {
                 fprintf(stderr,"[LOOSE SETUP ERROR] %s\n",setup_error);
+                return 4;
+            }
+
+            if(!xml1_costumes_init(test_game_dir ? test_game_dir : YOUR_GAME_DIR,
+                                    xml1_build_settings.text_language,setup_error,sizeof(setup_error))) {
+                fprintf(stderr,"[OUTFIT SETUP ERROR] %s\n",setup_error);
+                if(!s_headless) MessageBoxA(NULL,setup_error,"X-Men Legends outfits",MB_OK|MB_ICONERROR);
                 return 4;
             }
 

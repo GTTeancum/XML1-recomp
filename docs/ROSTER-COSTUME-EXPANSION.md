@@ -65,3 +65,24 @@ The regenerated build (SHA256 4dea6df9137b118e6611500a247924d41d8ea12ee7921bfcb4
 player-expansion-smoke-run launched that exact player executable from an unrelated working directory and reached the normal Wolverine level-one start. Its five native captures were inspected individually: intro media, Cerebro main menu, story FMV, arrival and movement. Both this and the private regenerated run match all 35 playable names and all ten physical skin IDs per name against the manifest. The player run ended under its test-only watchdog with userdata unchanged. Staged file hashes and protected saves/build.ini match the staging audit.
 
 Acceptance evidence: staging-audit.json, player-staging-manifest.json, guard-idempotence.json, test-regenerate-save-v2.log, regenerated-native-run/validation.json, player-expansion-smoke-run/validation.json, cycle-costumes-run/validation.json, and load-upper-costume-run/validation.json under work/progression-limits. Native save/load restores definition 37 in the active party with changed skin 28; all 37 state records match. The corrected level cap is 45. The stale goal wording about 99 was superseded by the user's explicit instruction.
+
+## Outfit availability (#35)
+
+The loose-file Windows build checks the active compiled herostat on every boot.
+Registered physical outfit IDs with a valid Xbox-format model and the normal
+and noncombat packages are selectable without story completion, modder mode or
+New Game+. The scan checks the package's IGB dependencies and screens for
+invalid or truncated IGB structures. It is not a replacement for the game's
+full asset decoder. Files not registered in herostat are not outfits.
+
+Cycling skips unavailable variants. A save that requests a missing or invalid
+variant resolves to the character's default at the native resource-name
+boundary, without rewriting the saved choice. If its default is also unusable,
+the first valid registered outfit is used. If none are usable, startup names
+the affected character rather than handing the game a known bad outfit. A
+registered outfit restored or added to the installation appears after restart.
+Campaign roster availability, Professor X and `SetInCampaign` are unchanged.
+
+`costume-catalog-test <new-scratch-directory>` uses synthetic installations and
+the production guest cycle and formatter. It tests boot re-discovery, sparse
+IDs, missing/corrupted assets, save fallback and intact guest stack/state.

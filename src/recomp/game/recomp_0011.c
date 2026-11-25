@@ -14,6 +14,7 @@
 
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
+#include "game/xml1/costume_catalog.h"
 #include <math.h>
 #include "app/build_settings.h"
 #include "game/xml1/character_limits.h"
@@ -106,6 +107,7 @@ void sub_0008C2F0(void)
 {
 
 loc_0008C2F0: ;
+    if (xml1_costumes_active()) { SET_LO8(eax,1); esp+=4; return; }
     /* Modder mode remains effective even if a loaded save resets GameState. */
     if (xml1_build_settings.modder_mode) { SET_LO8(eax,1); esp+=4; return; }
     SET_LO8(eax, MEM8(ecx + 0x195));

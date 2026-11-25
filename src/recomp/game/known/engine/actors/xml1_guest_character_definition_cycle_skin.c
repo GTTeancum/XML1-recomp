@@ -7,6 +7,7 @@
 #include "engine/actors/raven_character_race.h"
 #include "engine/combat/raven_filter_event.h"
 #include "recomp_funcs.h"
+#include "game/xml1/costume_catalog.h"
 #include "engine/progression/character_talent_map_guest.h"
 #include "engine/progression/character_talent_guest.h"
 #include <math.h>
@@ -29,6 +30,12 @@ void xml1_guest_character_definition_cycle_skin(void)
     (void)_fa; (void)_fb; (void)_fas; (void)_fbs;
 
 loc_000B0D30: ;
+    { unsigned pc_current = MEM8(ecx+0x1E);
+      if (pc_current == 255) pc_current = MEM8(ecx+0x371);
+      unsigned pc_next = xml1_costume_next((const char*)XBOX_PTR(ecx+0x20C),
+                                           MEM8(ecx+0x370),pc_current);
+      if (pc_next) { MEM8(ecx+0x1E) = (uint8_t)pc_next; esp+=4; return; }
+    }
     PUSH32(esp, ecx);
     PUSH32(esp, esi);
     esi = ecx;

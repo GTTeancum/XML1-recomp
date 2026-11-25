@@ -7,6 +7,7 @@
 #include "engine/actors/raven_character_race.h"
 #include "engine/combat/raven_filter_event.h"
 #include "recomp_funcs.h"
+#include "game/xml1/costume_catalog.h"
 #include "engine/progression/character_talent_map_guest.h"
 #include "engine/progression/character_talent_guest.h"
 #include <math.h>
@@ -55,6 +56,18 @@ loc_000B0EC8: ;
     PUSH32(esp, 0x000B0ED4u); RECOMP_ABI_CALL(0x000B0E40u, sub_000B0E40); /* call 0x000B0E40 */
 
 loc_000B0ED4: ;
+    /* Preserve native mission outfits when available. A missing saved
+     * explicit choice resolves to the default without changing the save byte. */
+    { const char *pc_name = (const char*)XBOX_PTR(esi+0x20C);
+      unsigned pc_family = MEM8(esi+0x370), pc_saved = MEM8(esi+0x1E);
+      unsigned pc_variant = LO8(eax);
+      if (!MEM8(esp+0xC) && pc_saved != 255) {
+          unsigned pc_restore = xml1_costume_fallback(pc_name,pc_family,pc_saved);
+          if (pc_restore && pc_restore != pc_saved) pc_variant = pc_restore;
+      }
+      unsigned pc_safe = xml1_costume_fallback(pc_name,pc_family,pc_variant);
+      if (pc_safe) SET_LO8(eax,pc_safe);
+    }
     edx = ZX8(MEM8(esi + 0x370));
     ecx = ZX8(LO8(eax));
     PUSH32(esp, ecx);
@@ -62,6 +75,10 @@ loc_000B0ED4: ;
     goto loc_000B0EEB;
 
 loc_000B0EE2: ;
+    { unsigned pc_safe = xml1_costume_fallback((const char*)XBOX_PTR(esi+0x20C),
+                                                MEM8(esi+0x370),eax);
+      if (pc_safe) eax = pc_safe;
+    }
     PUSH32(esp, eax);
     eax = ZX8(MEM8(esi + 0x370));
     PUSH32(esp, eax);

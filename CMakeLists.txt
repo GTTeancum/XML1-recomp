@@ -401,8 +401,13 @@ target_link_libraries(xml1-loose-extract PRIVATE xml1-miniz bcrypt)
 add_executable(loose-extract-driver tests/app/loose_extract_driver.cpp)
 target_link_libraries(loose-extract-driver PRIVATE xml1-loose-extract)
 
-target_sources(xml1-loose-extract PRIVATE src/app/loose_setup.cpp src/app/shadow_king_roster.cpp)
+target_sources(xml1-loose-extract PRIVATE src/app/loose_setup.cpp src/app/shadow_king_roster.cpp src/game/xml1/costume_catalog.cpp)
 target_link_libraries(xml1-loose-extract PRIVATE comctl32)
+add_executable(costume-catalog-test tests/app/costume_catalog_test.cpp tests/app/costume_catalog_guest_fixture.c
+    src/recomp/game/known/engine/actors/xml1_guest_character_definition_cycle_skin.c
+    src/recomp/game/known/engine/actors/xml1_guest_character_format_skin.c)
+target_include_directories(costume-catalog-test PRIVATE src/recomp/game)
+target_link_libraries(costume-catalog-test PRIVATE xml1-loose-extract)
 if(TARGET xml1-boot-probe)
     target_link_libraries(xml1-boot-probe PRIVATE xml1-loose-extract)
 endif()
