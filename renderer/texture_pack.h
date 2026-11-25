@@ -8,12 +8,12 @@
 // A replacement is the original texture scaled by a power of two (1x for a
 // recolor, normally 4x) and keeps the original texture format.
 //
-// Stability rules. A texture is either always replaced or never replaced:
+// Stability rules:
 // - Content keys cover the whole base level. Streamed and animated textures
 //   (movies, palette cycling) change key every frame and stay original instead
 //   of alternating between pack and original art.
-// - Loading is synchronous. A texture never draws once original and then HD.
-//   A failed replacement is remembered and remains original for the session.
+// - Loading is synchronous. A bad replacement remains original for the
+//   session; transient memory pressure uses the original only until a retry.
 // - For upscales the chain is [upscaled levels..., original levels...]. Distant surfaces
 //   sample the authored mips. Mip filtering is enabled for replaced textures
 //   whose stage disables it, so a 4x level 0 is never minified unfiltered
@@ -28,6 +28,7 @@
 #include <cfloat>
 #include <climits>
 #include <cmath>
+#include <new>
 #include <string>
 #include <thread>
 #include <vector>
@@ -244,6 +245,8 @@ static std::vector<unsigned char> half(const std::vector<unsigned char> &source,
     return out;
 }
 
+// Tokens keep these keys and their immutable original wire bytes, not a GPU reference.
+struct Match { uint64_t file=0,chain=0; bool valid=false; };
 struct Entry { IDirect3DTexture8 *texture; size_t bytes; uint64_t touched; };
 struct State {
     bool initialized=false,active=false,dumping=false;
@@ -254,7 +257,7 @@ struct State {
     IWICImagingFactory *wic=nullptr;
     unsigned max_width=2048,max_height=2048;
     size_t cache_bytes=0,budget=(size_t)1024*1024*1024;
-    uint64_t clock=0,loads=0,hits=0,failures=0,keys=0,forced_mips=0;
+    uint64_t clock=0,loads=0,hits=0,failures=0,keys=0,forced_mips=0,pressure_skips=0;
     double load_ms=0,max_load_ms=0,decode_ms=0,encode_ms=0;
 };
 static State &state() {static State s;return s;}
@@ -318,6 +321,13 @@ static void dump(State &s,uint64_t key,unsigned width,unsigned height,uint32_t p
     std::fwrite("XML1TEX1",1,8,file);std::fwrite(header,1,sizeof(header),file);
     std::fwrite(wire.data(),1,wire.size(),file);std::fclose(file);
 }
+struct UploadPressure {};
+static bool memory_pressure(HRESULT hr) {return hr==E_OUTOFMEMORY || hr==D3DERR_OUTOFVIDEOMEMORY;}
+static void checked_upload_result(HRESULT hr,const char *expression,const char *file,int line) {
+    if(memory_pressure(hr))throw UploadPressure{};
+    checked_result(hr,expression,file,line);
+}
+#define checked_upload(expression) checked_upload_result((expression),#expression,__FILE__,__LINE__)
 static std::vector<unsigned char> decode_png(State &s,const std::wstring &path,unsigned &width,unsigned &height) {
     IWICBitmapDecoder *decoder=nullptr;IWICBitmapFrameDecode *frame=nullptr;IWICBitmapSource *bgra=nullptr;
     std::vector<unsigned char> pixels;
@@ -327,8 +337,13 @@ static std::vector<unsigned char> decode_png(State &s,const std::wstring &path,u
     UINT w=0,h=0;
     if(SUCCEEDED(hr))hr=bgra->GetSize(&w,&h);
     if(SUCCEEDED(hr) && (!w || !h || w>16384 || h>16384))hr=E_INVALIDARG;
-    if(SUCCEEDED(hr)) {pixels.resize((size_t)w*h*4);hr=bgra->CopyPixels(nullptr,w*4,(UINT)pixels.size(),pixels.data());}
+    if(SUCCEEDED(hr)) {
+        try {pixels.resize((size_t)w*h*4);}
+        catch(const std::bad_alloc &) {hr=E_OUTOFMEMORY;}
+        if(SUCCEEDED(hr))hr=bgra->CopyPixels(nullptr,w*4,(UINT)pixels.size(),pixels.data());
+    }
     if(bgra)bgra->Release();if(frame)frame->Release();if(decoder)decoder->Release();
+    if(memory_pressure(hr))throw UploadPressure{};
     if(FAILED(hr))throw std::runtime_error("PNG decode failed");
     width=w;height=h;return pixels;
 }
@@ -340,30 +355,55 @@ static size_t chain_bytes(unsigned width,unsigned height,unsigned levels,unsigne
     }
     return total;
 }
+// The replay loop will bind all stages before its next draw. If an LRU
+// victim is still bound from an earlier draw, unbind it now so that dropping
+// the only cache reference actually releases it. Never evict the primary
+// texture already selected for the draw whose second stage is being read.
+static bool make_room(State &s,IDirect3DDevice8 *device,size_t bytes,IDirect3DTexture8 *protected_texture) {
+    if(bytes>s.budget)return false;
+    if(protected_texture && s.cache_bytes>s.budget-bytes)for(const auto &it:s.cache)
+        if(it.second.texture==protected_texture && it.second.bytes>s.budget-bytes)return false;
+    while(s.cache_bytes>s.budget-bytes) {
+        auto victim=s.cache.end();
+        for(auto it=s.cache.begin();it!=s.cache.end();++it)
+            if(it->second.texture!=protected_texture &&
+               (victim==s.cache.end() || it->second.touched<victim->second.touched))victim=it;
+        if(victim==s.cache.end())return false;
+        auto &entry=victim->second;
+        for(unsigned stage=0;stage<4;++stage)if(bound_textures_known[stage] && bound_textures[stage]==entry.texture)
+            cached_texture_binding(device,stage,nullptr);
+        s.cache_bytes-=entry.bytes;entry.texture->Release();s.cache.erase(victim);
+    }
+    return true;
+}
 static IDirect3DTexture8 *load(State &s,IDirect3DDevice8 *device,const std::wstring &path,unsigned width,unsigned height,
-                               uint32_t packed,const std::vector<unsigned char> &wire,D3DFORMAT d3d_format,size_t &bytes) {
+                               uint32_t packed,const std::vector<unsigned char> &wire,D3DFORMAT d3d_format,size_t &bytes,IDirect3DTexture8 *protected_texture) {
     double started=perf_now_ms();
     unsigned pw,ph;std::vector<unsigned char> image=decode_png(s,path,pw,ph);
     s.decode_ms+=perf_now_ms()-started;started=perf_now_ms();
     if(pw%width || ph%height || pw/width!=ph/height)throw std::runtime_error("replacement is not a uniform multiple of the original size");
     unsigned scale=pw/width,extra=0;
     if(scale&(scale-1))throw std::runtime_error("replacement scale is not a power of two");
-    while(pw>s.max_width || ph>s.max_height) {
-        if(scale==1)throw std::runtime_error("replacement exceeds device texture limits");
-        image=half(image,pw,ph);pw/=2;ph/=2;scale/=2;
-    }
     while((1u<<extra)<scale)++extra;
-    const unsigned format=packed&255,original_levels=xml1_texture_levels(packed),levels=extra+original_levels;
+    const unsigned format=packed&255,original_levels=xml1_texture_levels(packed);
+    for(;;) {
+        bytes=chain_bytes(pw,ph,extra+original_levels,format);
+        if(pw<=s.max_width && ph<=s.max_height && bytes<=s.budget)break;
+        if(!extra)throw std::runtime_error("replacement exceeds device limits or HD texture budget at 1x");
+        image=half(image,pw,ph);pw/=2;ph/=2;--extra;
+    }
+    if(!make_room(s,device,bytes,protected_texture))return nullptr; // transient, not a bad PNG
+    const unsigned levels=extra+original_levels;
     IDirect3DTexture8 *staging=nullptr,*texture=nullptr;
-    checked(device->CreateTexture(pw,ph,levels,0,d3d_format,D3DPOOL_SYSTEMMEM,&staging));
+    checked_upload(device->CreateTexture(pw,ph,levels,0,d3d_format,D3DPOOL_SYSTEMMEM,&staging));
     try {
         unsigned w=pw,h=ph;
         // A 1x pack is an edit, not an upscale. Upload its pixels and derive
         // every mip from that edit; copying the authored chain would erase it.
         const unsigned generated=extra?extra:levels;
         for(unsigned level=0;level<generated;++level) {
-            D3DLOCKED_RECT lock={};checked(staging->LockRect(level,&lock,nullptr,0));
-            encode_level(image,w,h,format,lock);checked(staging->UnlockRect(level));
+            D3DLOCKED_RECT lock={};checked_upload(staging->LockRect(level,&lock,nullptr,0));
+            encode_level(image,w,h,format,lock);checked_upload(staging->UnlockRect(level));
             if(level+1<generated)image=half(image,w,h);
             w=std::max(1u,w/2);h=std::max(1u,h/2);
         }
@@ -372,61 +412,72 @@ static IDirect3DTexture8 *load(State &s,IDirect3DDevice8 *device,const std::wstr
         for(unsigned level=0;extra && level<original_levels;++level) {
             const unsigned rows=(format==12||format==14)?(h+3)/4:h;
             const unsigned row_bytes=(format==12||format==14)?((w+3)/4)*(format==12?8:16):w*((format==6||format==7)?4:1);
-            D3DLOCKED_RECT lock={};checked(staging->LockRect(extra+level,&lock,nullptr,0));
+            D3DLOCKED_RECT lock={};checked_upload(staging->LockRect(extra+level,&lock,nullptr,0));
             for(unsigned y=0;y<rows;++y) {
                 unsigned char *dest=(unsigned char*)lock.pBits+y*lock.Pitch;
                 const unsigned char *source=wire.data()+offset+(size_t)y*row_bytes;
                 if(format==11)xml1_expand_palette_row(dest,source,w,wire.data());
                 else std::memcpy(dest,source,row_bytes);
             }
-            checked(staging->UnlockRect(extra+level));
+            checked_upload(staging->UnlockRect(extra+level));
             offset+=(size_t)rows*row_bytes;w=std::max(1u,w/2);h=std::max(1u,h/2);
         }
         s.encode_ms+=perf_now_ms()-started;
-        checked(device->CreateTexture(pw,ph,levels,0,d3d_format,D3DPOOL_DEFAULT,&texture));
-        checked(device->UpdateTexture(staging,texture));
-        const DWORD tag=extra;checked(texture->SetPrivateData(extra_levels_tag,&tag,sizeof(tag),0));
+        checked_upload(device->CreateTexture(pw,ph,levels,0,d3d_format,D3DPOOL_DEFAULT,&texture));
+        checked_upload(device->UpdateTexture(staging,texture));
+        const DWORD tag=extra;checked_upload(texture->SetPrivateData(extra_levels_tag,&tag,sizeof(tag),0));
     } catch(...) {staging->Release();if(texture)texture->Release();throw;}
     staging->Release();
-    bytes=chain_bytes(pw,ph,levels,format);
     return texture;
 }
-// Returns an owned reference, or null when the original texture is used.
-static IDirect3DTexture8 *replacement(IDirect3DDevice8 *device,unsigned width,unsigned height,uint32_t packed,
-                                      const std::vector<unsigned char> &wire,D3DFORMAT d3d_format) {
-    State &s=initialize(device);
-    if(!s.active && !s.dumping)return nullptr;
+#undef checked_upload
+static bool identify(State &s,unsigned width,unsigned height,uint32_t packed,
+                     const std::vector<unsigned char> &wire,Match &match) {
+    if(!s.active && !s.dumping)return false;
     const uint64_t key=texture_key(width,height,packed,wire.data());++s.keys;
     if(s.dumping)dump(s,key,width,height,packed,wire);
-    if(!s.active)return nullptr;
-    auto file=s.files.find(key);
-    if(file==s.files.end())return nullptr;
-    // PNG identity intentionally ignores authored mips. The GPU allocation
-    // cannot: its level count and appended bytes belong to this exact chain.
+    if(!s.active || !s.files.count(key))return false;
+    // PNG identity ignores authored mips; GPU allocation identity cannot.
     Md5 cache_hash;const uint32_t cache_header[3]={width,height,packed};
     cache_hash.update(cache_header,sizeof(cache_header));cache_hash.update(wire.data(),wire.size());
-    const uint64_t cache_key=cache_hash.key();
+    match={key,cache_hash.key(),true};return true;
+}
+// The caller owns the returned reference. The HD LRU is the only cache
+// retaining GPU replacements; a wire-token hit normally needs just this lookup.
+static IDirect3DTexture8 *acquire(State &s,IDirect3DDevice8 *device,unsigned width,unsigned height,uint32_t packed,
+                                  const std::vector<unsigned char> &wire,D3DFORMAT d3d_format,const Match &match,
+                                  IDirect3DTexture8 *protected_texture) {
+    const uint64_t cache_key=match.chain;
     ++s.clock;
     auto cached=s.cache.find(cache_key);
     if(cached!=s.cache.end()) {cached->second.touched=s.clock;++s.hits;cached->second.texture->AddRef();return cached->second.texture;}
     if(s.failed.count(cache_key))return nullptr;
     const double started=perf_now_ms();
     size_t bytes=0;IDirect3DTexture8 *texture=nullptr;
-    try {texture=load(s,device,file->second,width,height,packed,wire,d3d_format,bytes);}
+    const auto &path=s.files.at(match.file);
+    try {texture=load(s,device,path,width,height,packed,wire,d3d_format,bytes,protected_texture);}
+    catch(const UploadPressure &) {++s.pressure_skips;return nullptr;}
+    catch(const std::bad_alloc &) {++s.pressure_skips;return nullptr;}
     catch(const std::exception &error) {
         s.failed.insert(cache_key);++s.failures;
-        std::fprintf(stderr,"[TEXTURE PACK] %ls: %s; original texture retained\n",file->second.c_str(),error.what());
+        std::fprintf(stderr,"[TEXTURE PACK] %ls: %s; original texture retained\n",path.c_str(),error.what());
         return nullptr;
     }
+    if(!texture){++s.pressure_skips;return nullptr;}
+    try {s.cache.emplace(cache_key,Entry{texture,bytes,s.clock});}
+    catch(const std::bad_alloc &) {texture->Release();++s.pressure_skips;return nullptr;}
+    catch(...) {texture->Release();throw;}
     const double elapsed=perf_now_ms()-started;
     ++s.loads;s.load_ms+=elapsed;s.max_load_ms=std::max(s.max_load_ms,elapsed);
-    while(!s.cache.empty() && s.cache_bytes+bytes>s.budget) {
-        auto oldest=s.cache.begin();
-        for(auto i=s.cache.begin();i!=s.cache.end();++i)if(i->second.touched<oldest->second.touched)oldest=i;
-        s.cache_bytes-=oldest->second.bytes;oldest->second.texture->Release();s.cache.erase(oldest);
-    }
-    s.cache.emplace(cache_key,Entry{texture,bytes,s.clock});s.cache_bytes+=bytes;
-    texture->AddRef();
+    s.cache_bytes+=bytes;texture->AddRef();return texture;
+}
+static IDirect3DTexture8 *replacement(IDirect3DDevice8 *device,unsigned width,unsigned height,uint32_t packed,
+                                      const std::vector<unsigned char> &wire,D3DFORMAT d3d_format,
+                                      Match *retain=nullptr,IDirect3DTexture8 *protected_texture=nullptr) {
+    State &s=initialize(device);Match match;
+    if(!identify(s,width,height,packed,wire,match))return nullptr;
+    auto *texture=acquire(s,device,width,height,packed,wire,d3d_format,match,protected_texture);
+    if(retain && (texture || !s.failed.count(match.chain)))*retain=match;
     return texture;
 }
 static unsigned extra_levels(IDirect3DTexture8 *texture) {
@@ -444,8 +495,8 @@ static DWORD stage_state(D3DTEXTURESTAGESTATETYPE type,DWORD value,unsigned extr
 static void report() {
     const State &s=state();
     if(!s.active && !s.dumping)return;
-    std::printf("[TEXTURE PACK] keys=%llu loads=%llu hits=%llu failures=%llu resident=%zu bytes=%zu load_ms=%.1f decode_ms=%.1f encode_ms=%.1f max_load_ms=%.1f forced_mip_draws=%llu dumped=%zu\n",
-        s.keys,s.loads,s.hits,s.failures,s.cache.size(),s.cache_bytes,s.load_ms,s.decode_ms,s.encode_ms,s.max_load_ms,s.forced_mips,s.dumped.size());
+    std::printf("[TEXTURE PACK] keys=%llu loads=%llu hits=%llu failures=%llu resident=%zu bytes=%zu load_ms=%.1f decode_ms=%.1f encode_ms=%.1f max_load_ms=%.1f forced_mip_draws=%llu dumped=%zu pressure_skips=%llu\n",
+        s.keys,s.loads,s.hits,s.failures,s.cache.size(),s.cache_bytes,s.load_ms,s.decode_ms,s.encode_ms,s.max_load_ms,s.forced_mips,s.dumped.size(),s.pressure_skips);
 }
 static void clear() {
     State &s=state();

@@ -89,10 +89,23 @@ python scripts/texture-pack.py build --game XBOXgame --out XBOXgame/texturepack 
 Every `igTextureAttr` base image in every IGB is a source (DXT1, DXT3 and
 linear RGBA 8888). Optional renderer dumps add textures that are created
 outside IGB files: run the game with `XML1_DX8_TEXTURE_DUMP=<folder>` and pass
-`--dumps <folder>` (repeatable). Size/format groups with more than 16 dumped,
-runtime-only keys are streamed content such as FMV frames and are skipped.
+`--dumps <folder>` (repeatable). Multiple textures with the same dimensions and
+format are not by themselves a stream; the number of keys is not a filter. Bulk
+import still omits tiny runtime-only textures (fewer than 16 pixels).
+
+The dump format does not record which game resource produced the pixels.
+Bulk import conservatively skips the **observed stock movie upload layout**
+(1024×512, ARGB8888) even if it appears only once. This guard is for runtime
+dumps only, not textures from IGBs. For a verified static texture with that
+layout, pass `--static-dump path/to/key.xtex` (repeatable) to include that file
+without opting its neighbors in. The count of skipped files is printed and
+saved as `movie_layout_files_skipped` in `pack.json`. For other animated or
+custom video surfaces, use a curated capture directory; a partial set of
+frames can alternate with stock art during playback.
+
 Existing PNGs are kept, so an interrupted build resumes and hand-edited files
-are not overwritten.
+are not overwritten. Use a fresh output folder to exclude files from an older
+pack; changing export options does not remove old PNGs.
 
 Output names are `<folder>/<source>_<key>.png`. Only the 16 hex digits before
 `.png` identify the replacement; folders and the prefix are for people.
@@ -168,13 +181,19 @@ Earlier upscales flickered. This implementation removes each known cause:
   retain original distant mips; they are intended for detail enhancement,
   and do not preserve a deliberate recolor at every distance.
 - **Alternating between original and HD art.** Keys cover the whole base
-  level. Streamed or animated textures change key each frame and are never in
-  the pack, so they stay original rather than switching on matched frames.
-  Loading is synchronous: a texture is never drawn as the original first and
-  replaced later. A rejected PNG is logged once and remains original for the
-  session. Loaded replacements are cached by key (1 GiB, or half the
-  reported texture memory if less) independently of the original-texture
-  cache.
+  level, so a changed animation frame has a different key. The dump filter
+  above keeps the observed stock movie surface out of bulk exports.
+  Loading is synchronous; no background load swaps an original for an HD
+  texture after the draw. An invalid PNG is logged once and remains original for
+  the session. The HD cache budgets up to 1 GiB of replacement mip data, or
+  half the reported texture memory if less, before GPU allocation. The
+  original-texture cache does not retain replacements. An active wire token
+  retains the original bytes and keys, not evicted GPU storage; using the
+  token again reloads its replacement if needed. Individually oversized
+  upscales are halved to fit. If the primary texture of a draw temporarily
+  leaves too little room for its secondary replacement, only that draw uses
+  the secondary's original artwork; later draws retry. The budget does not
+  include original textures, temporary upload buffers or driver overhead.
 - **Allocation reuse.** The original-texture cache recycles evicted
   allocations with an identical layout. Replacement allocations have a
   different layout and are never recycled.

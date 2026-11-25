@@ -76,6 +76,53 @@ static void draw(IDirect3DDevice8 *device,const unsigned char block[16],DWORD mi
     REQUIRE(std::fwrite("XMLDX8R8",1,8,f)==8 && std::fwrite(packet.data(),1,packet.size(),f)==packet.size());
     std::rewind(f);replay_stream(device,f,nullptr,false);std::fclose(f);
 }
+// One V9 wire operation, including its ordered eviction list. Token references
+// carry no pixel payload: an evicted HD resource must be reconstructible.
+static IDirect3DTexture8 *wire_op(IDirect3DDevice8 *device,uint32_t token,const unsigned char *block=nullptr,
+                                  IDirect3DTexture8 *primary=nullptr,uint32_t evict=0) {
+    FILE *f=std::fopen("texture-pack-test.tmp","w+b");REQUIRE(f);
+    uint32_t count=evict?1:0;
+    REQUIRE(std::fwrite(&count,4,1,f)==1);
+    if(evict)REQUIRE(std::fwrite(&evict,4,1,f)==1);
+    REQUIRE(std::fwrite(&token,4,1,f)==1);
+    if(block)REQUIRE(std::fwrite(block,1,16,f)==16);
+    std::rewind(f);
+    auto *texture=read_wire_texture(device,f,4,4,14,true,primary,true);
+    std::fclose(f);return texture;
+}
+static void check_hd_budget(IDirect3DDevice8 *device,const unsigned char *red,const unsigned char *green) {
+    clear_texture_cache();
+    auto &s=texture_pack::state();
+    const auto old_budget=s.budget;
+    // 16x16 + 8x8 + 4x4 DXT3 = 336 bytes for red; the 4x4 recolor is 16.
+    s.budget=336;
+    auto *large=wire_op(device,XML1_WIRE_TEXTURE_DEFINE|1,red);REQUIRE(texture_pack::extra_levels(large)==2);
+    cached_texture_binding(device,0,large);large->Release();
+    auto *small=wire_op(device,XML1_WIRE_TEXTURE_DEFINE|2,green);small->Release();
+    REQUIRE(s.cache.size()==1 && s.cache_bytes==16 && texture_cache.empty());
+    REQUIRE(!bound_textures[0] && !wire_textures[0].texture && wire_textures[0].match.valid);
+    const auto loads=s.loads;
+    large=wire_op(device,1);REQUIRE(s.loads==loads+1 && texture_pack::extra_levels(large)==2 && s.cache_bytes==336);
+    auto *again=wire_op(device,1);REQUIRE(again==large && s.loads==loads+1);again->Release();
+    // Secondary cannot allocate an HD texture while the primary consumes the
+    // budget. Use the original for this draw only. The next reference retries.
+    auto failures=s.failures,skips=s.pressure_skips;
+    small=wire_op(device,2,nullptr,large);
+    D3DSURFACE_DESC desc={};checked(small->GetLevelDesc(0,&desc));REQUIRE(desc.Pool==D3DPOOL_MANAGED);
+    REQUIRE(s.failures==failures && s.pressure_skips==skips+1 && s.cache_bytes==336 && texture_cache.empty());
+    large->Release();small->Release();
+    small=wire_op(device,2);checked(small->GetLevelDesc(0,&desc));REQUIRE(desc.Pool==D3DPOOL_DEFAULT && s.cache_bytes==16);
+    small->Release();
+    // Evict/redefine a live token with the same ID. Downscale an individually
+    // oversized PNG *before* allocating GPU storage instead of exceeding budget.
+    s.budget=80;
+    large=wire_op(device,XML1_WIRE_TEXTURE_DEFINE|1,red,nullptr,1);
+    checked(large->GetLevelDesc(0,&desc));
+    REQUIRE(desc.Width==8 && texture_pack::extra_levels(large)==1 && s.cache_bytes==80);
+    large->Release();clear_texture_cache();s.budget=old_budget;
+    REQUIRE(!wire_textures[0].defined() && !wire_textures[1].defined() && !s.cache_bytes);
+    puts("PASS budgeted HD eviction, V9 rehydration, transient two-stage pressure and oversized PNG admission");
+}
 int main() {
  try {
     REQUIRE(md5_prefix("")==0xd41d8cd98f00b204ull);
@@ -203,6 +250,7 @@ int main() {
     chain_a->Release();chain_b->Release();chain_b_again->Release();
     puts("PASS cache distinguishes authored mip content and reuses identical chains");
 
+    check_hd_budget(device,red,green);
     {
         DisplayColor color;
         unsigned char lut[256];DisplayColor::table(100,100,lut);

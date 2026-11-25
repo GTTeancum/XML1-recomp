@@ -64,7 +64,7 @@ static D3DFORMAT replay_format(uint32_t format) {
 #include "texture_pack.h"
 struct TextureEntry {
     unsigned width,height; uint32_t packed,hash;
-    uint64_t touched; bool replaced;
+    uint64_t touched;
     std::vector<unsigned char> pixels;
     IDirect3DTexture8* texture;
 };
@@ -89,10 +89,17 @@ static D3DVIEWPORT8 output_viewport(D3DVIEWPORT8 input) {
     input.Y=content.y+scale_coordinate(input.Y,content.height,source_height);
     input.Width=right-input.X;input.Height=bottom-input.Y;return input;
 }
-struct WireTextureEntry { unsigned width,height; uint32_t packed; IDirect3DTexture8* texture; };
+struct WireTextureEntry {
+    unsigned width,height; uint32_t packed;
+    IDirect3DTexture8 *texture; // original textures only
+    texture_pack::Match match;
+    std::vector<unsigned char> pixels; // immutable guest mip chain for an HD token
+    bool defined() const {return texture || match.valid;}
+    void clear() {if(texture)texture->Release();*this={};}
+};
 static WireTextureEntry wire_textures[XML1_WIRE_TEXTURE_SLOTS]={};
 static void clear_wire_textures() {
-    for(auto& entry:wire_textures) if(entry.texture) {entry.texture->Release();entry={};}
+    for(auto& entry:wire_textures)entry.clear();
 }
 static uint32_t texture_hash(const std::vector<unsigned char>& pixels) {
     // A hash only narrows lookup: full byte equality is required for reuse.
@@ -115,35 +122,22 @@ static void report_texture_cache(unsigned frame) {
     std::printf("[DX8 TEXTURE ALLOCATION] creates=%llu reuses=%llu\n",texture_creates,texture_reuses);
     texture_pack::report();
 }
-static IDirect3DTexture8* read_texture(IDirect3DDevice8* device,FILE* file,unsigned width,unsigned height,uint32_t packed,IDirect3DTexture8* protected_texture=nullptr) {
-    const size_t bytes=xml1_texture_bytes(width,height,packed);
-    if(!bytes) throw std::runtime_error("Invalid texture mip chain");
-    std::vector<unsigned char> pixels(bytes);
-    replay_read(file,pixels.data(),bytes);
-    const double texture_started=perf_now_ms();
-    static const bool enabled=std::getenv("XML1_DX8_NO_TEXTURE_CACHE")==nullptr;
-    const uint32_t hash=enabled?texture_hash(pixels):0;
-    ++texture_requests;
-    if(enabled) for(auto& entry:texture_cache) {
-        if(entry.width==width && entry.height==height && entry.packed==packed && entry.hash==hash && entry.pixels==pixels) {
-            entry.touched=texture_requests; ++texture_hits;
-            entry.texture->AddRef();perf_texture_ms+=perf_now_ms()-texture_started;return entry.texture;
-        }
-    }
-    unsigned format=packed&255,levels=xml1_texture_levels(packed);
-    // A pack replacement has its own layout and is complete on return.
-    IDirect3DTexture8* texture=texture_pack::replacement(device,width,height,packed,pixels,replay_format(format));
-    const bool replaced=texture!=nullptr;
+static IDirect3DTexture8* upload_original(IDirect3DDevice8* device,unsigned width,unsigned height,uint32_t packed,
+                                          std::vector<unsigned char> &pixels,IDirect3DTexture8 *protected_texture,
+                                          bool enabled,uint32_t hash) {
+    const size_t bytes=pixels.size();
+    const unsigned format=packed&255,levels=xml1_texture_levels(packed);
+    IDirect3DTexture8* texture=nullptr;
     const size_t limit=64u*1024u*1024u;
     // Recycle only an evicted allocation with an identical layout. Dictionary
     // references remain immutable, and stage 0 must survive reading stage 1.
     // Managed LockRect retains the driver's GPU hazard synchronization; never
     // use NOOVERWRITE or mutate a texture still named by a wire token.
-    if(!replaced && enabled && (texture_cache.size()>=256 || texture_cache_bytes+bytes>limit)) {
+    if(enabled && (texture_cache.size()>=256 || texture_cache_bytes+bytes>limit)) {
         size_t candidate=texture_cache.size();
         for(size_t i=0;i<texture_cache.size();++i) {
             const auto &entry=texture_cache[i];
-            if(entry.replaced || entry.width!=width || entry.height!=height || entry.packed!=packed || entry.texture==protected_texture)continue;
+            if(entry.width!=width || entry.height!=height || entry.packed!=packed || entry.texture==protected_texture)continue;
             bool pinned=false;for(const auto &wire:wire_textures)if(wire.texture==entry.texture) {pinned=true;break;}
             if(!pinned && (candidate==texture_cache.size() || entry.touched<texture_cache[candidate].touched))candidate=i;
         }
@@ -156,7 +150,7 @@ static IDirect3DTexture8* read_texture(IDirect3DDevice8* device,FILE* file,unsig
     if(!texture) {checked(device->CreateTexture(width,height,levels,0,replay_format(format),D3DPOOL_MANAGED,&texture));++texture_creates;}
     unsigned w=width,h=height;size_t offset=format==11?1024:0;
     try {
-        for(unsigned level=0;level<(replaced?0:levels);++level) {
+        for(unsigned level=0;level<levels;++level) {
             unsigned rows=(format==12||format==14)?(h+3)/4:h;
             unsigned row_bytes=(format==12||format==14)?((w+3)/4)*(format==12?8:16):w*((format==6||format==7)?4:1);
             D3DLOCKED_RECT lock={}; checked(texture->LockRect(level,&lock,nullptr,0));
@@ -179,13 +173,35 @@ static IDirect3DTexture8* read_texture(IDirect3DDevice8* device,FILE* file,unsig
                 texture_cache[oldest].texture->Release();
                 texture_cache.erase(texture_cache.begin()+oldest);
             }
-            texture_cache.push_back({width,height,packed,hash,texture_requests,replaced,std::move(pixels),texture});
+            texture_cache.push_back({width,height,packed,hash,texture_requests,std::move(pixels),texture});
             texture_cache_bytes+=bytes;
             texture->AddRef(); // Cache owns original reference; caller releases this one.
         }
     } catch(...) {texture->Release();throw;}
-    perf_texture_ms+=perf_now_ms()-texture_started;
     return texture;
+}
+static IDirect3DTexture8* read_texture(IDirect3DDevice8* device,FILE* file,unsigned width,unsigned height,uint32_t packed,IDirect3DTexture8* protected_texture=nullptr,
+                                     WireTextureEntry *definition=nullptr) {
+    const size_t bytes=xml1_texture_bytes(width,height,packed);
+    if(!bytes) throw std::runtime_error("Invalid texture mip chain");
+    std::vector<unsigned char> pixels(bytes);
+    replay_read(file,pixels.data(),bytes);
+    const double texture_started=perf_now_ms();
+    static const bool enabled=std::getenv("XML1_DX8_NO_TEXTURE_CACHE")==nullptr;
+    const uint32_t hash=enabled?texture_hash(pixels):0;
+    ++texture_requests;
+    if(enabled) for(auto& entry:texture_cache) {
+        if(entry.width==width && entry.height==height && entry.packed==packed && entry.hash==hash && entry.pixels==pixels) {
+            entry.touched=texture_requests; ++texture_hits;
+            entry.texture->AddRef();perf_texture_ms+=perf_now_ms()-texture_started;return entry.texture;
+        }
+    }
+    texture_pack::Match match;
+    auto *texture=texture_pack::replacement(device,width,height,packed,pixels,replay_format(packed&255),&match,protected_texture);
+    // A temporary original must not mask a valid replacement on a later draw.
+    if(!texture)texture=upload_original(device,width,height,packed,pixels,protected_texture,enabled && !match.valid,hash);
+    if(definition && match.valid){definition->match=match;definition->pixels=std::move(pixels);}
+    perf_texture_ms+=perf_now_ms()-texture_started;return texture;
 }
 static IDirect3DTexture8* read_wire_texture(IDirect3DDevice8* device,FILE* file,unsigned width,unsigned height,uint32_t packed,bool version7,IDirect3DTexture8* protected_texture=nullptr,bool version9=false) {
     if(version9) {
@@ -193,8 +209,8 @@ static IDirect3DTexture8* read_wire_texture(IDirect3DDevice8* device,FILE* file,
         if(count>XML1_WIRE_TEXTURE_SLOTS)throw std::runtime_error("Invalid texture eviction count");
         for(unsigned i=0;i<count;++i) {
             uint32_t id;replay_read(file,&id,4);
-            if(!id || id>XML1_WIRE_TEXTURE_SLOTS || !wire_textures[id-1].texture)throw std::runtime_error("Invalid texture eviction id");
-            wire_textures[id-1].texture->Release();wire_textures[id-1]={};
+            if(!id || id>XML1_WIRE_TEXTURE_SLOTS || !wire_textures[id-1].defined())throw std::runtime_error("Invalid texture eviction id");
+            wire_textures[id-1].clear();
         }
     }
     if(!version7) return read_texture(device,file,width,height,packed,protected_texture);
@@ -205,12 +221,25 @@ static IDirect3DTexture8* read_wire_texture(IDirect3DDevice8* device,FILE* file,
     if(!id || id>XML1_WIRE_TEXTURE_SLOTS) throw std::runtime_error("Invalid texture reference id");
     auto& entry=wire_textures[id-1];
     if(token&XML1_WIRE_TEXTURE_DEFINE) {
-        if(entry.texture) throw std::runtime_error("Duplicate texture definition");
-        entry={width,height,packed,read_texture(device,file,width,height,packed,protected_texture)};
-    } else if(!entry.texture || entry.width!=width || entry.height!=height || entry.packed!=packed) {
-        throw std::runtime_error("Undefined or mismatched texture reference");
+        if(entry.defined())throw std::runtime_error("Duplicate texture definition");
+        auto *texture=read_texture(device,file,width,height,packed,protected_texture,&entry);
+        entry.width=width;entry.height=height;entry.packed=packed;
+        if(!entry.match.valid){entry.texture=texture;texture->AddRef();}
+        return texture;
     }
-    entry.texture->AddRef(); return entry.texture;
+    if(!entry.defined() || entry.width!=width || entry.height!=height || entry.packed!=packed)
+        throw std::runtime_error("Undefined or mismatched texture reference");
+    if(entry.texture){entry.texture->AddRef();return entry.texture;}
+    // Resolves in O(1) on a hit; after a budget eviction recreate from the
+    // original bytes held for the token, without invalidating the wire ID.
+    auto &state=texture_pack::state();
+    auto *texture=texture_pack::acquire(state,device,width,height,packed,entry.pixels,replay_format(packed&255),entry.match,protected_texture);
+    if(texture)return texture;
+    texture=upload_original(device,width,height,packed,entry.pixels,protected_texture,false,0);
+    if(state.failed.count(entry.match.chain)) { // permanently invalid PNG, not transient pressure
+        entry.clear();entry={width,height,packed,texture};texture->AddRef();
+    }
+    return texture;
 }
 static DWORD blend(DWORD v) {
     if (v <= 1) return v + 1;

@@ -69,6 +69,57 @@ class TexturePackBuilderTests(unittest.TestCase):
         self.assertEqual(png.shape,(4,4,4))
         self.assertTrue((png==tp.decode_wire(red_dxt3,4,4,14)).all())
 
+    def test_dump_cli_keeps_static_groups_and_guards_movie_layout(self):
+        import json
+        import struct
+        import subprocess
+        import sys
+        import tempfile
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            game=root/'game';capture=root/'dumps';more=root/'more'
+            for folder in (game,capture,more):folder.mkdir()
+
+            def write_dump(path,w,h,fmt,pixel):
+                base=pixel*(w*h)
+                key=tp.texture_key(w,h,fmt,base)
+                path.write_bytes(b'XML1TEX1'+struct.pack('<4I',w,h,fmt,len(base))+base)
+                return key
+            def export(out,*args):
+                subprocess.run([sys.executable,tp.__file__,'build','--game',str(game),
+                                '--out',str(out),'--jobs','1','--originals',*map(str,args)],
+                               check=True,capture_output=True,text=True)
+                return json.loads((out/'sources.json').read_text())['textures'],json.loads((out/'pack.json').read_text())
+
+            # Cross the old global threshold via two separate capture folders.
+            keys={write_dump(capture/f'{i}.xtex',4,4,6,bytes((i,80,160,255))) for i in range(16)}
+            orig,_=export(root/'sixteen','--dumps',capture)
+            self.assertEqual(set(orig),keys)
+            keys.add(write_dump(more/'last.xtex',4,4,6,bytes((16,80,160,255))))
+            (more/'duplicate.xtex').write_bytes((capture/'0.xtex').read_bytes())
+
+            # Two lookalike surfaces suffice: even short movie clips must not
+            # be partly replaced; an explicit static selection affects one file.
+            sx=more/'static-hud.xtex';frame=more/'movie.xtex'
+            verified=write_dump(sx,1024,512,6,bytes((33,44,55,255)))
+            movie=write_dump(frame,1024,512,6,bytes((12,23,34,255)))
+            bulk,manifest=export(root/'bulk','--dumps',capture,'--dumps',more)
+            self.assertEqual(set(bulk),keys)
+            self.assertEqual(manifest['movie_layout_files_skipped'],2)
+            out=root/'selected'
+            selected,manifest=export(out,'--dumps',more,'--dumps',capture,'--static-dump',sx,'--static-dump',sx)
+            self.assertEqual(set(selected),keys|{verified})
+            self.assertNotIn(movie,selected)
+            self.assertEqual(manifest['movie_layout_files_skipped'],1)
+            self.assertEqual(len(list(out.rglob('*.png'))),18)
+            with Image.open(out/selected[verified]['file']) as image:
+                self.assertEqual(image.size,(1024,512))
+                self.assertEqual(image.convert('RGB').getpixel((0,0)),(55,44,33))
+            with Image.open(out/selected[tp.texture_key(4,4,6,bytes((16,80,160,255))*16)]['file']) as image:
+                self.assertEqual(image.convert('RGB').getpixel((3,3)),(160,80,16))
+
     def test_ncnn_conversion_matches_reference(self):
         try:import onnxruntime as ort
         except ImportError:self.skipTest('onnxruntime not installed')

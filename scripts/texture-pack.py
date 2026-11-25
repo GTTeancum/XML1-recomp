@@ -30,7 +30,9 @@ SCALE=4
 # Alchemy pixel format -> renderer wire format. DXT blocks cross unchanged;
 # linear RGBA 8888 arrives as linear BGRA (verified against renderer dumps).
 IGB_WIRE={7:6,13:12,14:12,15:14}
-STREAMED_GROUP=16   # More runtime-only keys of one size/format: a movie or animation.
+# Legacy XML1TEX1 dumps have no provenance. This is the documented stock
+# movie upload layout (docs/PROGRESS.md, paired movie source/upload capture).
+MOVIE_SURFACE=(1024,512,6)  # width, height, ARGB8888 wire format
 
 def level_bytes(w,h,fmt):
     if fmt in (12,14):return ((w+3)//4)*((h+3)//4)*(8 if fmt==12 else 16)
@@ -303,12 +305,22 @@ def scan_igb(job):
         found.append((texture_key(im.width,im.height,fmt,base),im.width,im.height,fmt,base,wrap[0]!=0,wrap[1]!=0))
     return rel,found,None
 
-def read_dump(path):
-    data=Path(path).read_bytes()
-    if data[:8]!=b'XML1TEX1':raise ValueError(f'{path}: not a texture dump')
-    w,h,packed,size=struct.unpack_from('<4I',data,8);fmt=packed&255
-    wire=data[24:24+size]
-    base=wire[:(1024 if fmt==11 else 0)+level_bytes(w,h,fmt)]
+def read_dump(path,*,confirmed_static=False):
+    with path.open('rb') as f:
+        header=f.read(24)
+        if len(header)!=24 or header[:8]!=b'XML1TEX1':
+            raise ValueError(f'{path}: not a texture dump')
+        w,h,packed,size=struct.unpack_from('<4I',header,8);fmt=packed&255
+        n=(1024 if fmt==11 else 0)+level_bytes(w,h,fmt)
+        if not w or not h or w>4096 or h>4096 or fmt not in (0,6,7,11,12,14,25):
+            raise ValueError(f'{path}: invalid texture dimensions or format')
+        if size<n or os.fstat(f.fileno()).st_size!=24+size:
+            raise ValueError(f'{path}: invalid texture payload length')
+        # No hashing/decoding of multi-megabyte movie frames just to reject
+        # them. Only explicit provenance from the author overrides this guard.
+        if (w,h,fmt)==MOVIE_SURFACE and not confirmed_static:return None
+        base=f.read(n)
+        if len(base)!=n:raise ValueError(f'{path}: truncated texture base level')
     return texture_key(w,h,fmt,base),w,h,fmt,base
 
 def make(job):
@@ -335,6 +347,9 @@ def build(args):
     if args.originals and args.model:sys.exit('--originals exports unscaled textures; it does not take --model')
     for folder in args.dumps or []:
         if not folder.is_dir():sys.exit(f'Texture dump folder does not exist: {folder}')
+    static_dumps={p.resolve() for p in args.static_dump or []}
+    for dump in static_dumps:
+        if not dump.is_file():sys.exit(f'Static texture dump file does not exist: {dump}')
     files=sorted(str(p) for p in game.rglob('*') if p.suffix.lower()=='.igb' and p.is_file() and out not in p.parents)
     if files:
         try:igb_reader(args.igb_reader.resolve())
@@ -351,20 +366,21 @@ def build(args):
             for key,w,h,fmt,base,ws,wt in found:
                 if key not in textures:textures[key]=dict(w=w,h=h,fmt=fmt,base=base,wrap_s=ws,wrap_t=wt,source=rel)
     igb_count=len(textures)
-    # Runtime-only textures come from dumps. A size/format group with many
-    # unique keys is streamed content (FMV frames): replacing only the dumped
-    # frames would alternate between pack and original art, so it is skipped.
-    runtime={}
-    for folder in args.dumps or []:
-        for dump in sorted(folder.glob('*.xtex')):
-            key,w,h,fmt,base=read_dump(dump)
-            if key not in textures and w*h>=16:runtime.setdefault((fmt,w,h),{})[key]=base
-    streamed=0
-    for (fmt,w,h),group in sorted(runtime.items()):
-        if len(group)>STREAMED_GROUP:streamed+=len(group);continue
-        for key,base in group.items():
+    # Multiplicity says nothing about texture identity: distinct HUD/level
+    # assets routinely share a layout. Never discard a group based on count.
+    dumps=static_dumps|{p.resolve() for folder in args.dumps or [] for p in folder.glob('*.xtex')}
+    ambiguous=0
+    for dump in sorted(dumps):
+        result=read_dump(dump,confirmed_static=dump in static_dumps)
+        if result is None:
+            ambiguous+=1
+            continue
+        key,w,h,fmt,base=result
+        if key not in textures and (w*h>=16 or dump in static_dumps):
             textures[key]=dict(w=w,h=h,fmt=fmt,base=base,wrap_s=True,wrap_t=True,source='runtime/'+key)
-    print(f'[TEXTURE PACK] igb_files={len(files)} igb_textures={igb_count} runtime_only={len(textures)-igb_count} streamed_skipped={streamed}',flush=True)
+    print(f'[TEXTURE PACK] igb_files={len(files)} igb_textures={igb_count} runtime_only={len(textures)-igb_count} movie_layout_files_skipped={ambiguous}',flush=True)
+    if ambiguous:
+        print('[TEXTURE PACK] Bulk import skips the stock movie layout; use --static-dump FILE for a verified static texture with that layout.',file=sys.stderr)
     jobs=[]
     for key,t in textures.items():
         parts=t['source'].split('/')
@@ -384,6 +400,7 @@ def build(args):
             if i%(20 if args.model else 200)==0 or i==len(jobs):
                 print(f'[TEXTURE PACK] {i}/{len(jobs)} written={written} bytes={total} elapsed={time.perf_counter()-started:.0f}s',flush=True)
     manifest=dict(format='OpenXML1 HD texture pack',version=PACK_VERSION,scale=1 if args.originals else SCALE,textures=len(jobs),skipped_igb=skipped,
+                  movie_layout_files_skipped=ambiguous,
                   key='md5(u32 width, u32 height, u32 wire format, wire level 0)[:8]',
                   method='original textures, unscaled' if args.originals else
                          (f'{Path(args.model).stem} 4x, back-projected to the original texel averages' if args.model else
@@ -422,6 +439,8 @@ def main():
     b.add_argument('--game',type=Path,required=True,help='Game data folder (default.xbe and loose IGB assets)')
     b.add_argument('--out',type=Path,required=True)
     b.add_argument('--dumps',type=Path,action='append',help='Renderer texture dump folder (*.xtex); repeatable')
+    b.add_argument('--static-dump',type=Path,action='append',metavar='FILE',
+                   help='Include this known static .xtex file even if it shares the movie layout; repeatable')
     b.add_argument('--igb-reader',type=Path,default=Path(__file__).resolve().parent.parent/'work'/'igb-blender-reference',
                    help='IGB reader root (igb_format/, scene_graph/)')
     b.add_argument('--jobs',type=int,default=os.cpu_count())
