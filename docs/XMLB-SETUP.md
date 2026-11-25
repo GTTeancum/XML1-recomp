@@ -115,3 +115,16 @@ Tests run hidden and muted through the game's process-local test channel and
 native capture facility. Audible fidelity and the GUI dialog's interactive
 cancellation were not assessed. Full-campaign testing and performance acceptance
 on the user's other machines remain separate open work.
+
+### 10th Avenue Nightcrawler comic (#37)
+
+First-run extraction restores the Nightcrawler comic in the English Sentinel
+Flashback map. The installer compiles the two PS2-derived pickup nodes into
+the extracted Xbox map's `nyc_fb4.engb`. It leaves the original `.eng` alone
+and declares the existing Xbox pickup model in the generated map package if
+needed. No PS2 map or model is installed. Installations with custom English
+map/package overrides are left alone; already-prepared installs are not
+migrated by this first-run fix.
+
+`scripts/test-nightcrawler-comic-install.py --driver <loose-extract-driver>`
+exercises the installer extraction entry point with synthetic archives.

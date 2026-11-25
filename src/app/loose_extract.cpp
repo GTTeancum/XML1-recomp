@@ -2,6 +2,7 @@
 #include <bcrypt.h>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <set>
 #include <vector>
@@ -14,6 +15,7 @@
 #include <cwchar>
 #include "miniz.h"
 #include "app/loose_extract.h"
+#include "app/nightcrawler_comic.h"
 namespace fs=std::filesystem;
 using Bytes=std::vector<unsigned char>;
 namespace {
@@ -85,6 +87,16 @@ std::string logical(std::string name,const std::string& kind) {
     if(dot==name.npos||name.find('/',dot)!=name.npos)throw std::runtime_error("Resource extension missing: "+name);
     return name.substr(0,dot);
 }
+// If a fresh install already has a loose override, leave that map alone.
+bool absent_or_same(const fs::path& path, const Bytes& expected) {
+    const DWORD attrs=GetFileAttributesW(path.c_str());
+    if(attrs==INVALID_FILE_ATTRIBUTES)
+        return GetLastError()==ERROR_FILE_NOT_FOUND || GetLastError()==ERROR_PATH_NOT_FOUND;
+    if(attrs&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))return false;
+    if(fs::file_size(path)!=expected.size())return false;
+    std::ifstream file(path,std::ios::binary);
+    return file && Bytes(std::istreambuf_iterator<char>(file),{})==expected && !file.bad();
+}
 struct Zip {
     mz_zip_archive zip{};FILE *file=nullptr;
     explicit Zip(const wchar_t *path) {
@@ -101,7 +113,8 @@ struct Zip {
     }
 };
 }
-extern "C" int xml1_extract_loose(const wchar_t *archive,const wchar_t *destination,Xml1ExtractProgress progress,void *context,char *error,unsigned error_size) {
+static int extract_loose(const wchar_t *archive,const wchar_t *destination,const wchar_t *game_root,
+                         Xml1ExtractProgress progress,void *context,char *error,unsigned error_size) {
     try {
         fs::path dest(destination);if(fs::exists(dest))throw std::runtime_error("Extraction destination already exists");
         Zip zip(archive);fs::create_directories(dest);
@@ -130,6 +143,11 @@ extern "C" int xml1_extract_loose(const wchar_t *archive,const wchar_t *destinat
             if(!file)throw std::runtime_error("Cannot finish "+path.u8string());
             assets[name]=digest;return name;
         };
+        struct MapPackage {fs::path path;std::vector<Resource> resources;};
+        std::vector<MapPackage> comic_packages;
+        const auto is_comic_zone=[](const Resource& r) {
+            return r.kind=="zonexml" && r.name==xml1::nightcrawler_zone;
+        };
         unsigned done=0;
         for(int pass=0;pass<2;++pass)for(const Entry& entry:entries) {
             if(entry.fb!=(pass==1))continue;
@@ -157,13 +175,56 @@ extern "C" int xml1_extract_loose(const wchar_t *archive,const wchar_t *destinat
                     if(languages.count(suffix)&&!localized.insert({kind,key}).second)continue;
                     resources.push_back({kind,key});
                 }
-                fs::path p(entry.name);p.replace_extension(".pkgb");write(dest/p,package(resources));
+                fs::path p(entry.name);p.replace_extension(".pkgb");
+                if(game_root && std::any_of(resources.begin(),resources.end(),is_comic_zone))
+                    comic_packages.push_back({p,std::move(resources)});
+                else write(dest/p,package(resources));
             }
             ++done;
         }
+        // The model may come from another FB, so decide after all FBs have
+        // been unpacked, still inside the installer's private extraction tree.
+        if(!comic_packages.empty() && assets.count(xml1::nightcrawler_source) &&
+           !assets.count(xml1::nightcrawler_binary) &&
+           assets.count(std::string(xml1::comic_model)+".igb")) {
+            const fs::path root(game_root);
+            std::ifstream input(dest/xml1::nightcrawler_source,std::ios::binary);
+            if(!input)throw std::runtime_error("Cannot read extracted 10th Avenue config");
+            const std::string stock(std::istreambuf_iterator<char>(input),{});
+            auto fixed=xml1::nightcrawler_comic_fix(stock);
+            if(!fixed.empty() &&
+               absent_or_same(root/xml1::nightcrawler_source,Bytes(stock.begin(),stock.end())) &&
+               absent_or_same(root/xml1::nightcrawler_binary,fixed)) {
+                auto updated=comic_packages;
+                for(auto& map:updated) {
+                    const auto model=std::find_if(map.resources.begin(),map.resources.end(),[](const Resource& r) {
+                        return r.kind=="model" && r.name==xml1::comic_model;
+                    });
+                    const auto zone=std::find_if(map.resources.begin(),map.resources.end(),is_comic_zone);
+                    if(model==map.resources.end())map.resources.insert(zone,{"model",xml1::comic_model});
+                }
+                const bool preserve_overrides=std::all_of(updated.begin(),updated.end(),[&](const MapPackage& map) {
+                    return absent_or_same(root/map.path,package(map.resources));
+                });
+                if(preserve_overrides) {
+                    write(dest/xml1::nightcrawler_binary,fixed);
+                    comic_packages=std::move(updated);
+                }
+            }
+        }
+        for(const auto& map:comic_packages)write(dest/map.path,package(map.resources));
         if(progress&&!progress(context,done,(unsigned)entries.size(),"Validation complete"))throw std::runtime_error("Extraction cancelled");
         return 1;
     } catch(const std::exception& e) {
         if(error_size)snprintf(error,error_size,"%s",e.what());return 0;
     }
+}
+
+extern "C" int xml1_extract_loose(const wchar_t *archive,const wchar_t *destination,
+    Xml1ExtractProgress progress,void *context,char *error,unsigned error_size) {
+    return extract_loose(archive,destination,nullptr,progress,context,error,error_size);
+}
+extern "C" int xml1_extract_loose_for_install(const wchar_t *archive,const wchar_t *destination,
+    const wchar_t *game_root,Xml1ExtractProgress progress,void *context,char *error,unsigned error_size) {
+    return extract_loose(archive,destination,game_root,progress,context,error,error_size);
 }

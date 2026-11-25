@@ -61,7 +61,7 @@ void run(Setup& s) {
     try {
         char error[1024]={0};
         if(s.extract) {
-            if(!xml1_extract_loose(s.archive.c_str(),s.stage.c_str(),progress,&s,error,sizeof(error)))throw std::runtime_error(error);
+            if(!xml1_extract_loose_for_install(s.archive.c_str(),s.stage.c_str(),s.root.c_str(),progress,&s,error,sizeof(error)))throw std::runtime_error(error);
         } else fs::create_directory(s.stage);
         // Publish only complete files. Existing files are user-owned and kept.
         // Reject reparse directories so installation cannot write outside root.
