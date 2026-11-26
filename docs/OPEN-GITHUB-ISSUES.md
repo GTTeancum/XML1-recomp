@@ -4,6 +4,43 @@ Scope: open issues in GTTeancum/XML1-recomp, excluding #33 at the user's
 direction. Issue bodies and all comments were read on 2026-11-13. Local fixes
 are not published resolutions; do not close issues from tests alone.
 
+## Post-1.0.2 source handoff (2026-11-25)
+
+The [1.0.2 release](https://github.com/GTTeancum/XML1-recomp/releases/tag/1.0.2)
+predates the candidates below. Verify a Windows build from current source with
+the corresponding setup files, not an executable swapped into a mixed
+installation.
+
+- **[#36: Shadow King](https://github.com/GTTeancum/XML1-recomp/issues/36).**
+  `f4da4f2` conditionally repairs the isolated final encounter roster during
+  loose-file setup when it needs Professor X and matches the known three-actor
+  case. Fixture tests cover fresh setup, repeat/migration, and preservation
+  of unrelated files and saves; the broken stock roster and boss fight have
+  not been reproduced on Windows. First verify Professor X spawns and the
+  fight can be completed from a pre-fight save. See [setup](XMLB-SETUP.md).
+- **[#37: Nightcrawler comic](https://github.com/GTTeancum/XML1-recomp/issues/37).**
+  `16c5b72` repairs the English map during **fresh extraction**, not when
+  replacing the EXE in an already-prepared install. Test with a clean setup,
+  reach the 10th Avenue rooftop in the final Sentinel Flashback
+  (`nyc_fb4`), pick up the comic and confirm it registers. The installer
+  fixture is not a gameplay proof; see [setup](XMLB-SETUP.md#10th-avenue-nightcrawler-comic-37).
+- **[#29: in-game Options labels](https://github.com/GTTeancum/XML1-recomp/issues/29).**
+  The released 1.0.1 and 1.0.2 normal Options resources both contain the
+  Effects Volume, Music Volume and Combat Music text/control definitions.
+  Compare the main-menu Options screen with Pause → Options after loading
+  the same English save, once the animation settles, at the same renderer
+  and output settings. Test each slider separately. Compare the installed
+  `ui/menus/options.engb` and `ui/menus/x2m_options.igb` with a fresh
+  1.0.2 setup without overlays. `f4da4f2` fixes a viewport-clear mismatch
+  in source but has not been shown to restore these captions.
+- **[#29: Beast and the Juggernaut memory](https://github.com/GTTeancum/XML1-recomp/issues/29).**
+  The report was on 1.0.1; 1.0.2 behavior is unknown. The release manifests
+  do not show changed Beast dialogue/scripts or an X-Mansion map override.
+  Retest from a pre-conversation save: after the Magma Danger Room test,
+  speak to Beast in the subbasement lab before leaving the second X-Mansion
+  interlude after HAARP. This is a route to try, not a verified Xbox-port
+  reproduction or confirmed fix.
+
 ## Current assessment (2026-11-14)
 
 The open-issue inventory was rechecked against GitHub. No additional issue
